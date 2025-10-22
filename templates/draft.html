@@ -1,0 +1,106 @@
+﻿<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Fantasy Draft</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; color: #eaeaea; background:#111;}
+    .wrap { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; }
+    .card { background:#1b1b1b; padding:16px; border-radius:12px; }
+    .slots { display:grid; grid-template-columns: repeat(5,1fr); gap:12px; }
+    .slot { background:#222; height:120px; border-radius:10px; display:flex; align-items:center; justify-content:center; color:#777; border:1px dashed #333; }
+    table { width:100%; border-collapse: collapse; }
+    th, td{ padding:8px 10px; border-bottom:1px solid #222; }
+    button { background:#2e7d32; color:white; border:none; padding:6px 10px; border-radius:8px; cursor:pointer; }
+    .danger { background:#b71c1c; }
+  </style>
+</head>
+<body>
+  <h2>Fantasy Draft</h2>
+  <div id="meta"></div>
+  <div class="wrap">
+    <div class="card">
+      <h3>Мой состав (5 слотов)</h3>
+      <div id="budget"></div>
+      <div id="slots" class="slots"></div>
+    </div>
+
+    <div class="card">
+      <h3>Игроки турнира</h3>
+      <table id="market">
+        <thead><tr><th>Игрок</th><th>Команда</th><th>Цена</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const user = params.get('user') || 'Guest';
+  const leagueId = window.location.pathname.split('/').filter(Boolean).pop();
+
+  async function loadState(){
+    const res = await fetch(`/api/draft/${leagueId}/state?user=${encodeURIComponent(user)}`);
+    const data = await res.json();
+    document.getElementById('meta').innerText = `Лига: ${data.league.name} | Пользователь: ${data.team.user_name}`;
+    document.getElementById('budget').innerText = `Бюджет: ${data.team.budget_left.toLocaleString()} $`;
+
+    // слоты
+    const slots = document.getElementById('slots');
+    slots.innerHTML = '';
+    const filled = data.roster;
+    for (let i=0; i<5; i++){
+      const slot = document.createElement('div');
+      slot.className = 'slot';
+      if (i < filled.length){
+        const r = filled[i];
+        slot.innerHTML = `<div style="text-align:center">
+            <div><b>${r.player__nickname}</b></div>
+            <div style="font-size:12px;color:#aaa">${r.player__team__name||''}</div>
+            <button class="danger" onclick="sell(${r.player_id})">Удалить</button>
+          </div>`;
+      } else {
+        slot.innerText = 'пусто';
+      }
+      slots.appendChild(slot);
+    }
+
+    // рынок
+    const tbody = document.querySelector('#market tbody');
+    tbody.innerHTML = '';
+    data.market.forEach(row=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${row.player__nickname}</td>
+                      <td>${row.player__team__name||''}</td>
+                      <td>${row.price.toLocaleString()} $</td>
+                      <td><button onclick="buy(${row.player_id})">Купить</button></td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function buy(playerId){
+    const res = await fetch('/api/draft/buy', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({league_id: Number(leagueId), user, player_id: playerId})
+    });
+    const data = await res.json();
+    if(data.error){ alert(data.error); return; }
+    loadState();
+  }
+
+  async function sell(playerId){
+    const res = await fetch('/api/draft/sell', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({league_id: Number(leagueId), user, player_id: playerId})
+    });
+    const data = await res.json();
+    if(data.error){ alert(data.error); return; }
+    loadState();
+  }
+
+  loadState();
+</script>
+</body>
+</html>
