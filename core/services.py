@@ -1,86 +1,56 @@
-﻿from typing import Iterable
-from datetime import timedelta, datetime
-
+﻿from typing import Dict, Any, Optional
+from datetime import timedelta
 from django.db import transaction
 from django.utils import timezone
-from django.db.models import Q, Sum, Count, Avg, Min, FloatField, F
-from django.db.models.functions import Cast, Coalesce
-from django.core.exceptions import ValidationError
+from django.db.models import Q, Sum, Count, Avg, FloatField
+from django.db.models.functions import Coalesce, Cast
+from django.contrib.auth.models import User
+from typing import Iterable
+from .scoring import calc_points
+from django.db import transaction
+from .models import Map, PlayerMapStats, FantasyRoster, FantasyPoints
 
 from .models import (
-    Map, PlayerMapStats, FantasyTeam, FantasyRoster, FantasyPoints,
-    Tournament, Team, Player, PlayerPrice, League
+    Team, Player, Tournament, League, FantasyTeam, FantasyRoster,
+    Match, Map, PlayerMapStats, FantasyPoints, PlayerPrice, TournamentTeam
 )
-from .scoring import calc_points
 
 
-# ====== Пересчёт очков ======
+# =================== helpers ===================
 
-def recalc_map(map_id: int) -> int:
-    game_map = Map.objects.select_related('match', 'winner_team').get(id=map_id)
-    t_id = game_map.match.tournament_id
-
-    stats: Iterable[PlayerMapStats] = (
-        PlayerMapStats.objects
-        .select_related('player', 'player__team')
-        .filter(map_id=map_id)
+def _team_ids_for_tournament(tournament_id: int) -> set[int]:
+    """
+    Возвращает множество id команд, связанных с турниром.
+    1) Сначала явные связи из TournamentTeam.
+    2) Если связей нет — фолбэк по матчам.
+    """
+    tts = list(
+        TournamentTeam.objects.filter(tournament_id=tournament_id)
+        .values_list("team_id", flat=True)
     )
+    if tts:
+        return set(tts)
 
-    rosters = (
-        FantasyRoster.objects
-        .select_related('fantasy_team', 'fantasy_team__league', 'player', 'player__team')
-        .filter(fantasy_team__league__tournament_id=t_id)
+    ids = set(
+        Match.objects.filter(tournament_id=tournament_id)
+        .values_list("team1_id", flat=True)
     )
-
-    roster_by_player: dict[int, list[tuple[int, str | None]]] = {}
-    for r in rosters:
-        roster_by_player.setdefault(r.player_id, []).append((r.fantasy_team_id, r.role_badge or None))
-
-    upserts = 0
-    with transaction.atomic():
-        for s in stats:
-            player_team_id = s.player.team_id
-            stat_dict = {
-                "kills": s.kills, "assists": s.assists, "deaths": s.deaths,
-                "opening_kills": s.opening_kills, "opening_deaths": s.opening_deaths,
-                "mk_3k": s.mk_3k, "mk_4k": s.mk_4k, "mk_5k": s.mk_5k,
-                "cl_1v2": s.cl_1v2, "cl_1v3": s.cl_1v3, "cl_1v4": s.cl_1v4, "cl_1v5": s.cl_1v5,
-                "hs": s.hs, "adr": float(s.adr) if s.adr is not None else None,
-                "rating2": float(s.rating2) if s.rating2 is not None else None,
-            }
-
-            for ft_id, role_badge in roster_by_player.get(s.player_id, []):
-                pts, br = calc_points(
-                    stat=stat_dict,
-                    played_rounds=game_map.played_rounds,
-                    winner_team_id=game_map.winner_team_id,
-                    player_team_id=player_team_id,
-                    role_badge=role_badge
-                )
-                FantasyPoints.objects.update_or_create(
-                    fantasy_team_id=ft_id, map_id=game_map.id, player_id=s.player_id,
-                    defaults={"points": pts, "breakdown": br}
-                )
-                upserts += 1
-    return upserts
+    ids |= set(
+        Match.objects.filter(tournament_id=tournament_id)
+        .values_list("team2_id", flat=True)
+    )
+    return ids
 
 
-def recalc_tournament(tournament_id: int) -> int:
-    maps_qs = Map.objects.select_related('match').filter(match__tournament_id=tournament_id)
-    total = 0
-    for m_obj in maps_qs:
-        total += recalc_map(m_obj.id)
-    return total
-
-
-# ====== Генерация цен для рынка ======
-
-def _team_factor(rank: int | None, max_rank: int = 50) -> float:
-    if not rank or rank <= 0:
+def _team_factor(rank: Optional[int], max_rank: int = 50) -> float:
+    """Фактор силы команды (1.0 — топ, 0.0 — слабая)."""
+    if rank is None or rank <= 0:
         return 0.5
     r = min(rank, max_rank)
-    return 1.0 - (r / max_rank)
+    return 1.0 - (r - 1) / max_rank
 
+
+# =================== advanced market generation ===================
 
 def generate_market_prices_for_tournament(
     tournament_id: int,
@@ -99,43 +69,30 @@ def generate_market_prices_for_tournament(
     flank_max_mult: float = 1.25,
     source_label: str = "AUTO",
 ) -> int:
+    """Генерация цен игроков турнира по статистике."""
     now = timezone.now()
     since = now - timedelta(days=use_days_window)
 
-    # Основной источник команд — участники матчей турнира
-    team_ids = list(
-        Team.objects
-        .filter(
-            Q(match_team1__tournament_id=tournament_id) |
-            Q(match_team2__tournament_id=tournament_id)
-        )
-        .values_list("id", flat=True)
-        .distinct()
-    )
-
-    # Fallback: если матчей нет, берём все команды, у которых есть игроки
+    # --- команды турнира: строго TournamentTeam -> fallback по матчам; НИКАКИХ "взять всех" ---
+    team_ids = list(_team_ids_for_tournament(tournament_id))
     if not team_ids:
-        team_ids = list(
-            Player.objects
-            .exclude(team_id__isnull=True)
-            .values_list("team_id", flat=True)
-            .distinct()
-        )
+        # Нет участников и матчей — нечего генерировать
+        return 0
 
-    # Если даже так пусто — берём всех игроков
-    if team_ids:
-        players = Player.objects.filter(team_id__in=team_ids).select_related("team")
-    else:
-        players = Player.objects.all().select_related("team")
-
+    players = Player.objects.filter(team_id__in=team_ids).select_related("team")
     player_ids = list(players.values_list("id", flat=True))
     if not player_ids:
         return 0
 
+    # агрегаты по статистике
     stats_qs = (
         PlayerMapStats.objects
         .select_related("map", "map__match", "player", "player__team")
-        .filter(player_id__in=player_ids, map__match__start_time__gte=since, map__match__start_time__lte=now)
+        .filter(
+            player_id__in=player_ids,
+            map__match__start_time__gte=since,
+            map__match__start_time__lte=now
+        )
         .values("player_id")
         .annotate(
             kills=Coalesce(Sum("kills"), 0),
@@ -148,21 +105,16 @@ def generate_market_prices_for_tournament(
     )
     agg = {row["player_id"]: row for row in stats_qs}
 
-    # Средние очки по игрокам (points — DecimalField → кастуем в float + задаём output_field)
+    # средние fantasy-поинты
     fpm_qs = (
         FantasyPoints.objects
         .filter(player_id__in=player_ids)
         .values("player_id")
-        .annotate(
-            avg=Coalesce(
-                Cast(Avg("points"), FloatField()),
-                0.0,
-                output_field=FloatField()
-            )
-        )
+        .annotate(avg=Coalesce(Cast(Avg("points"), FloatField()), 0.0))
     )
     fpm_map = {r["player_id"]: float(r["avg"]) for r in fpm_qs}
 
+    # подготовка метрик
     metrics: dict[int, dict] = {}
     for pid in player_ids:
         row = agg.get(pid)
@@ -173,18 +125,11 @@ def generate_market_prices_for_tournament(
             rating_avg = float(row["rating_sum"] / row["rating_cnt"]) if row["rating_cnt"] else None
             kdr = (k / d) if d > 0 else (k if k > 0 else 0.0)
         else:
-            rating_avg = None
-            adr_avg = None
-            kdr = None
+            rating_avg = adr_avg = kdr = None
         metrics[pid] = {"rating": rating_avg, "kdr": kdr, "adr": adr_avg, "fpm": fpm_map.get(pid)}
 
     def collect_clean(key):
-        vals = []
-        for _pid, mtr in metrics.items():
-            v = mtr.get(key)
-            if v is not None and v == v:
-                vals.append(float(v))
-        return vals
+        return [float(v) for v in (m.get(key) for m in metrics.values()) if v is not None]
 
     def norm_func(vals):
         if not vals:
@@ -192,12 +137,10 @@ def generate_market_prices_for_tournament(
         vmin, vmax = min(vals), max(vals)
         if vmax - vmin < 1e-9:
             return (lambda _x: 0.5), vmin, vmax
-
         def _norm(x):
             if x is None:
                 return 0.5
             return (float(x) - vmin) / (vmax - vmin)
-
         return _norm, vmin, vmax
 
     norm_rating, rmin, rmax = norm_func(collect_clean("rating"))
@@ -205,6 +148,7 @@ def generate_market_prices_for_tournament(
     norm_adr, amin, amax = norm_func(collect_clean("adr"))
     norm_fpm, fmin, fmax = norm_func(collect_clean("fpm"))
 
+    # скоринг
     score_by_player: dict[int, float] = {}
     team_factor_by_player: dict[int, float] = {}
     for p in players:
@@ -214,19 +158,12 @@ def generate_market_prices_for_tournament(
         na = norm_adr(mtr.get("adr"))
         nf = norm_fpm(mtr.get("fpm"))
         tf = _team_factor(getattr(p.team, "world_rank", None), max_rank=max_rank)
-
-        S = (weight_rating * nr +
-             weight_kdr * nk +
-             weight_adr * na +
-             weight_fpm * nf +
-             weight_team * tf)
-
+        S = (weight_rating * nr + weight_kdr * nk + weight_adr * na + weight_fpm * nf + weight_team * tf)
         score_by_player[p.id] = S
         team_factor_by_player[p.id] = tf
 
     S_values = list(score_by_player.values())
     Smin, Smax = min(S_values), max(S_values)
-
     avg_price = int((budget / slots) * avg_price_mult)
     pmin_target = int(avg_price * flank_min_mult)
     pmax_target = int(avg_price * flank_max_mult)
@@ -236,11 +173,7 @@ def generate_market_prices_for_tournament(
         for p in players:
             PlayerPrice.objects.update_or_create(
                 tournament_id=tournament_id, player_id=p.id,
-                defaults={
-                    "price": avg_price,
-                    "source": source_label,
-                    "calc_meta": {"reason": "flat_avg_no_variance", "avg_price": avg_price}
-                }
+                defaults={"price": avg_price, "source": source_label, "calc_meta": {"flat": True}}
             )
             upserts += 1
         return upserts
@@ -261,197 +194,233 @@ def generate_market_prices_for_tournament(
                     "kdr": metrics[p.id].get("kdr"),
                     "adr": metrics[p.id].get("adr"),
                     "fpm": metrics[p.id].get("fpm"),
+                    "team_factor": team_factor_by_player[p.id],
+                    "S": S,
+                    "alpha": alpha, "beta": beta,
+                    "targets": {"avg": avg_price, "min": pmin_target, "max": pmax_target},
+                    "weights": {"rating": weight_rating, "kdr": weight_kdr, "adr": weight_adr, "fpm": weight_fpm, "team": weight_team},
                     "norm": {
                         "rating_min": rmin, "rating_max": rmax,
                         "kdr_min": kmin, "kdr_max": kmax,
                         "adr_min": amin, "adr_max": amax,
                         "fpm_min": fmin, "fpm_max": fmax,
                     },
-                    "team_factor": team_factor_by_player[p.id],
-                    "S": S,
-                    "alpha": alpha, "beta": beta,
-                    "targets": {"avg": avg_price, "min": pmin_target, "max": pmax_target},
-                    "weights": {
-                        "rating": weight_rating, "kdr": weight_kdr,
-                        "adr": weight_adr, "fpm": weight_fpm, "team": weight_team
-                    }
-                }
-            }
+                },
+            },
         )
         upserts += 1
     return upserts
 
 
-# ====== Драфт: глобальный lock и ограничения ======
+# =================== draft logic ===================
 
-MAX_ROSTER_SIZE = 5
-MAX_PER_REAL_TEAM = 2  # не больше 2 игроков из одной команды
+def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
+    league = League.objects.select_related("tournament").get(id=league_id)
 
-
-def _get_or_create_fantasy_team(league_id: int, user_name: str) -> FantasyTeam:
-    """
-    Создаёт команду с бюджетом лиги.
-    Если команда уже есть, но budget_left <= 0 и ростер пуст — синхронизируем с бюджетом лиги.
-    """
-    league = League.objects.get(id=league_id)
-    ft, created = FantasyTeam.objects.get_or_create(
-        league_id=league_id,
-        user_name=user_name,
-        defaults={"budget_left": league.budget}
+    # Обеспечиваем наличие fantasy-команды для пользователя
+    ft, _ = FantasyTeam.objects.get_or_create(
+        user=user,
+        league=league,
+        defaults={"user_name": user.username, "budget_left": league.budget},
     )
-    if created:
-        return ft
 
-    # проверяем пустой ростер явным запросом
-    roster_empty = not FantasyRoster.objects.filter(fantasy_team=ft).exists()
-    if (ft.budget_left is None or ft.budget_left <= 0) and roster_empty:
-        ft.budget_left = league.budget
-        ft.save(update_fields=["budget_left"])
-    return ft
-
-
-def _tournament_started_for_league(league: League) -> bool:
-    now = timezone.now()
-    first_match = (
-        Map.objects
-        .filter(match__tournament_id=league.tournament_id)
-        .aggregate(first=Min("match__start_time"))
-    )["first"]
-
-    if first_match:
-        return now >= first_match
-
-    t = league.tournament
-    if t and t.start_date:
-        start_dt = timezone.make_aware(datetime.combine(t.start_date, datetime.min.time()))
-        return now >= start_dt
-    return False
-
-
-def buy_player(league_id: int, user_name: str, player_id: int) -> dict:
-    league = League.objects.select_related("tournament").get(id=league_id)
-
-    if _tournament_started_for_league(league):
-        raise ValidationError("Draft is locked: tournament already started.")
-
-    ft = _get_or_create_fantasy_team(league_id, user_name)
-
-    if FantasyRoster.objects.filter(fantasy_team=ft).count() >= MAX_ROSTER_SIZE:
-        raise ValidationError("Roster is full (5/5).")
-
-    if FantasyRoster.objects.filter(fantasy_team=ft, player_id=player_id).exists():
-        raise ValidationError("Player already in roster.")
-
-    player = Player.objects.select_related("team").get(id=player_id)
-    if player.team_id:
-        same_team_count = (
-            FantasyRoster.objects
-            .filter(fantasy_team=ft, player__team_id=player.team_id)
-            .count()
-        )
-        if same_team_count >= MAX_PER_REAL_TEAM:
-            raise ValidationError(f"Too many players from the same team (max {MAX_PER_REAL_TEAM}).")
-
-    pp = PlayerPrice.objects.filter(tournament=league.tournament_id, player_id=player_id).first()
-    if not pp:
-        raise ValidationError("Price for this player is not set for league tournament.")
-
-    if ft.budget_left < pp.price:
-        raise ValidationError("Not enough budget.")
-
-    with transaction.atomic():
-        FantasyRoster.objects.create(fantasy_team=ft, player_id=player_id)
-        ft.budget_left -= pp.price
-        ft.save(update_fields=["budget_left"])
-
-    return {"team_id": ft.id, "budget_left": ft.budget_left}
-
-
-def sell_player(league_id: int, user_name: str, player_id: int) -> dict:
-    league = League.objects.select_related("tournament").get(id=league_id)
-
-    if _tournament_started_for_league(league):
-        raise ValidationError("Draft is locked: tournament already started.")
-
-    ft = _get_or_create_fantasy_team(league_id, user_name)
-
-    r = FantasyRoster.objects.filter(fantasy_team=ft, player_id=player_id).first()
-    if not r:
-        raise ValidationError("Player not in roster.")
-
-    pp = PlayerPrice.objects.filter(tournament=league.tournament_id, player_id=player_id).first()
-    price = pp.price if pp else 0
-
-    with transaction.atomic():
-        r.delete()
-        ft.budget_left += price
-        ft.save(update_fields=["budget_left"])
-
-    return {"team_id": ft.id, "budget_left": ft.budget_left}
-
-
-def draft_state(league_id: int, user_name: str) -> dict:
-    league = League.objects.select_related("tournament").get(id=league_id)
-    ft = _get_or_create_fantasy_team(league_id, user_name)
-
-    started = _tournament_started_for_league(league)
-
-    # roster: player_name / team_name для фронта
+    # Текущий ростер
     roster_qs = (
         FantasyRoster.objects
         .select_related("player", "player__team")
         .filter(fantasy_team=ft)
-        .values("player_id")
-        .annotate(
-            player_name=F("player__nickname"),
-            team_name=F("player__team__name"),
-            player__team_id=F("player__team_id"),
-        )
     )
-    roster = []
-    for r in roster_qs:
-        roster.append({
-            "player_id": r["player_id"],
-            "player_name": r["player_name"],
-            "team_name": r["team_name"],
-            "player__team_id": r["player__team_id"],
-        })
+    roster = [
+        {
+            "player_id": r.player_id,
+            "player_name": r.player.nickname,
+            "team_id": r.player.team_id,
+            "team_name": getattr(r.player.team, "name", None),
+        }
+        for r in roster_qs
+    ]
 
-    # market: player_name / team_name
+    # Счётчик игроков по реальным командам в ростере — для ограничения "max per team"
+    team_counts: Dict[str, int] = {}
+    for r in roster_qs:
+        tid = r.player.team_id
+        if tid:
+            k = str(tid)
+            team_counts[k] = team_counts.get(k, 0) + 1
+
+    # Маркет по ценам текущего турнира
     market_qs = (
         PlayerPrice.objects
         .select_related("player", "player__team")
-        .filter(tournament=league.tournament_id)
+        .filter(tournament=league.tournament)
         .order_by("-price")
-        .values("player_id", "price")
-        .annotate(
-            player_name=F("player__nickname"),
-            team_name=F("player__team__name"),
-            team_id=F("player__team_id"),
-        )
     )
-    market = list(market_qs)
+    market = [
+        {
+            "player_id": pp.player_id,
+            "player_name": pp.player.nickname,
+            "team_id": pp.player.team_id,                    # ВАЖНО: нужен фронту
+            "team_name": getattr(pp.player.team, "name", None),
+            "price": pp.price,
+        }
+        for pp in market_qs
+    ]
 
-    # ограничения по командам
-    team_counts: dict[int, int] = {}
-    for r in roster:
-        tid = r.get("player__team_id")
-        if tid:
-            team_counts[tid] = team_counts.get(tid, 0) + 1
-
-    # === КОНТРАКТ ДЛЯ ФРОНТА ===
-    return {
-        "tournament": {"id": league.tournament_id},
-        "tournament_id": league.tournament_id,     # для обратной совместимости
+    # Флаги и лимиты, которые ждёт фронт
+    state = {
         "league": {"id": league.id, "name": league.name, "tournament": league.tournament_id},
+        "tournament": {"id": league.tournament_id, "name": league.tournament.name} if league.tournament_id else None,
+        "tournament_id": league.tournament_id,
 
-        "fantasy_team": {"id": ft.id, "user_name": ft.user_name, "budget_left": ft.budget_left},
-        "budget_left": ft.budget_left,             # дубликат для бэкап-логики в UI
+        "fantasy_team": {"id": ft.id, "budget_left": ft.budget_left},
+        "started": False,                         # пока турниры не стартовали
+        "limits": {"slots": 5, "max_per_team": 2},
+        "team_counts": team_counts,
 
         "roster": roster,
         "market": market,
-
-        "limits": {"slots": MAX_ROSTER_SIZE, "max_per_team": MAX_PER_REAL_TEAM},
-        "started": started,
-        "team_counts": team_counts,
     }
+    return state
+
+
+@transaction.atomic
+def handle_draft_buy(user: User, league_id: int, player_id: int) -> Dict[str, Any]:
+    league = League.objects.select_related("tournament").get(id=league_id)
+    ft = FantasyTeam.objects.select_for_update().get(user=user, league=league)
+    price = PlayerPrice.objects.filter(tournament=league.tournament_id, player_id=player_id).values_list("price", flat=True).first() or 0
+    if FantasyRoster.objects.filter(fantasy_team=ft).count() >= 5:
+        return {"error": "Roster full"}
+    if ft.budget_left < price:
+        return {"error": "Not enough budget"}
+    FantasyRoster.objects.create(fantasy_team=ft, player_id=player_id)
+    ft.budget_left -= price
+    ft.save(update_fields=["budget_left"])
+    return {"ok": True, "budget_left": ft.budget_left}
+
+
+@transaction.atomic
+def handle_draft_sell(user: User, league_id: int, player_id: int) -> Dict[str, Any]:
+    league = League.objects.select_related("tournament").get(id=league_id)
+    ft = FantasyTeam.objects.select_for_update().get(user=user, league=league)
+    price = PlayerPrice.objects.filter(tournament=league.tournament_id, player_id=player_id).values_list("price", flat=True).first() or 0
+    row = FantasyRoster.objects.filter(fantasy_team=ft, player_id=player_id).first()
+    if not row:
+        return {"error": "Player not in roster"}
+    row.delete()
+    ft.budget_left += price
+    ft.save(update_fields=["budget_left"])
+    return {"ok": True, "budget_left": ft.budget_left}
+
+
+def recalc_fantasy_points(scope: str, obj_id: int) -> None:
+    pass
+
+
+def get_player_summary(player_id: int, tournament_id: Optional[int] = None) -> Dict[str, Any]:
+    # Сырые статы (как было)
+    qs = PlayerMapStats.objects.filter(player_id=player_id)
+    if tournament_id:
+        qs = qs.filter(map__match__tournament_id=tournament_id)
+
+    maps_cnt = qs.count()
+    kills = qs.aggregate(total=Sum("kills")).get("total") or 0
+    deaths = qs.aggregate(total=Sum("deaths")).get("total") or 0
+    kd = round(kills / deaths, 2) if deaths else None
+
+    # Фэнтези-очки из FantasyPoints
+    fpts_qs = FantasyPoints.objects.filter(player_id=player_id)
+    if tournament_id:
+        fpts_qs = fpts_qs.filter(map__match__tournament_id=tournament_id)
+
+    total_fp = float(fpts_qs.aggregate(total=Sum("points")).get("total") or 0.0)
+    maps_with_fp = int(fpts_qs.values("map_id").distinct().count())
+    fppg = round(total_fp / maps_with_fp, 2) if maps_with_fp else None
+
+    return {
+        "maps": maps_cnt,
+        "kills": kills,
+        "deaths": deaths,
+        "kd": kd,
+        # ВАЖНО: эти два поля читает фронт
+        "fantasy_pts": round(total_fp, 2) if maps_with_fp else None,
+        "fppg": fppg,
+    }
+
+
+# ====== Пересчёт очков ======
+def recalc_map(map_id: int) -> int:
+    """
+    Пересчитать FantasyPoints для одной карты.
+    Возвращает количество апсертов в FantasyPoints.
+    """
+    game_map = (
+        Map.objects
+        .select_related("match")
+        .get(id=map_id)
+    )
+    tournament_id = game_map.match.tournament_id
+
+    # Все статы на карте
+    stats: Iterable[PlayerMapStats] = (
+        PlayerMapStats.objects
+        .select_related("player", "player__team")
+        .filter(map_id=map_id)
+    )
+
+    # Все ростеры лиг этого турнира
+    rosters = (
+        FantasyRoster.objects
+        .select_related("fantasy_team", "fantasy_team__league", "player", "player__team")
+        .filter(fantasy_team__league__tournament_id=tournament_id)
+    )
+
+    # Индексация: игрок -> [(fantasy_team_id, role_badge)]
+    roster_by_player: dict[int, list[tuple[int, str | None]]] = {}
+    for r in rosters:
+        roster_by_player.setdefault(r.player_id, []).append((r.fantasy_team_id, r.role_badge or None))
+
+    upserts = 0
+    with transaction.atomic():
+        for s in stats:
+            stat_dict = {
+                "kills": s.kills, "assists": s.assists, "deaths": s.deaths,
+                "opening_kills": s.opening_kills, "opening_deaths": s.opening_deaths,
+                "mk_3k": s.mk_3k, "mk_4k": s.mk_4k, "mk_5k": s.mk_5k,
+                "cl_1v2": s.cl_1v2, "cl_1v3": s.cl_1v3, "cl_1v4": s.cl_1v4, "cl_1v5": s.cl_1v5,
+                "hs": s.hs,
+                "adr": float(s.adr) if s.adr is not None else None,
+                "rating2": float(s.rating2) if s.rating2 is not None else None,
+            }
+
+            # Победителя карты в модели нет — передаём None
+            for ft_id, role_badge in roster_by_player.get(s.player_id, []):
+                pts, br = calc_points(
+                    stat=stat_dict,
+                    played_rounds=game_map.played_rounds,
+                    winner_team_id=None,
+                    player_team_id=s.player.team_id,
+                    role_badge=role_badge,
+                )
+                FantasyPoints.objects.update_or_create(
+                    fantasy_team_id=ft_id,
+                    map_id=game_map.id,
+                    player_id=s.player_id,
+                    defaults={"points": pts, "breakdown": br},
+                )
+                upserts += 1
+
+    return upserts
+
+
+def recalc_tournament(tournament_id: int) -> int:
+    total = 0
+    for m in Map.objects.select_related("match").filter(match__tournament_id=tournament_id):
+        total += recalc_map(m.id)
+    return total
+
+def recalc_fantasy_points(scope: str, obj_id: int) -> int:
+    if scope == "map":
+        return recalc_map(int(obj_id))
+    if scope == "tournament":
+        return recalc_tournament(int(obj_id))
+    raise ValueError("scope must be 'map' or 'tournament'")

@@ -53,6 +53,15 @@ function Modal({ open, onClose, title, children, footer }) {
     </div>
   );
 }
+function InfoTile({ label, value, sub }) {
+  return (
+    <div className="rounded-lg bg-black/40 border border-white/10 p-3">
+      <div className="text-xs text-zinc-400">{label}</div>
+      <div className="text-xl font-semibold">{value}</div>
+      {sub && <div className="text-xs text-zinc-400 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
 
 /* ================== DRAFT PAGE ================== */
 export default function DraftPage() {
@@ -63,10 +72,13 @@ export default function DraftPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [matches, setMatches] = useState([]);
+
   const [selected, setSelected] = useState(null);
   const [statLoading, setStatLoading] = useState(false);
   const [statErr, setStatErr] = useState("");
   const [stat, setStat] = useState(null);
+
+  const [rosterSummaries, setRosterSummaries] = useState({});
 
   async function load() {
     setErr("");
@@ -112,6 +124,30 @@ export default function DraftPage() {
     loadMatches();
   }, [tournamentId]);
 
+  // Загружаем краткие сводки по игрокам из ростера (для карточек ростера)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadRosterSummaries() {
+      if (!roster?.length) { setRosterSummaries({}); return; }
+      const entries = await Promise.all(
+        roster.map(async (r) => {
+          try {
+            const qs = tournamentId ? `?tournament=${tournamentId}` : "";
+            // FIX: убран лишний слэш перед ? (должно быть .../${id}${qs})
+            const sum = await apiGet(`/player-summary/${r.player_id}${qs}`, false);
+            return [r.player_id, { fantasy_pts: sum.fantasy_pts, fppg: sum.fppg }];
+          } catch (e) {
+            console.error("player-summary failed", e);
+            return [r.player_id, { fantasy_pts: null, fppg: null }];
+          }
+        })
+      );
+      if (!cancelled) setRosterSummaries(Object.fromEntries(entries));
+    }
+    loadRosterSummaries();
+    return () => { cancelled = true; };
+  }, [JSON.stringify(roster), tournamentId]);
+
   const market = useMemo(() => (state?.market || []).slice(), [state]);
 
   function canBuy(p) {
@@ -142,29 +178,17 @@ export default function DraftPage() {
     }
   }
 
+  // Модалка с серверной агрегацией
   async function openPlayerModal(p) {
     setSelected(p);
     setStat(null);
     setStatErr("");
     setStatLoading(true);
     try {
-      const all = await apiGet(`/player-map-stats`, false);
-      const mine = (all || []).filter((row) => Number(row.player) === Number(p.player_id));
-      if (!mine.length) {
-        setStat({ games: 0, kd: null, adr: null, rating2: null });
-      } else {
-        const kills = mine.reduce((s, r) => s + (r.kills || 0), 0);
-        const deaths = mine.reduce((s, r) => s + (r.deaths || 0), 0);
-        const adrVals = mine.map((r) => Number(r.adr) || 0);
-        const ratingVals = mine.map((r) => Number(r.rating2) || 0);
-        const avg = (arr) => (arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null);
-        setStat({
-          games: mine.length,
-          kd: deaths ? (kills / deaths).toFixed(2) : "∞",
-          adr: avg(adrVals)?.toFixed(1) ?? null,
-          rating2: avg(ratingVals)?.toFixed(2) ?? null,
-        });
-      }
+      const qs = tournamentId ? `?tournament=${tournamentId}` : "";
+      // FIX: убран лишний слэш перед ? (должно быть .../${id}${qs})
+      const data = await apiGet(`/player-summary/${p.player_id}${qs}`, false);
+      setStat(data);
     } catch (e) {
       setStatErr(String(e.message || e));
     } finally {
@@ -194,6 +218,7 @@ export default function DraftPage() {
           {started && <Pill>Locked</Pill>}
         </div>
 
+        {/* Upcoming matches */}
         <section className="mt-5">
           <h2 className="text-lg font-semibold mb-2">Upcoming matches</h2>
           <div className="flex gap-2 overflow-x-auto pb-2">
@@ -209,9 +234,10 @@ export default function DraftPage() {
           </div>
         </section>
 
+        {/* Roster */}
         <section className="mt-6">
           <h2 className="text-lg font-semibold mb-3">Your roster</h2>
-          <div className="grid grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {Array.from({ length: maxSlots }).map((_, i) => {
               const r = roster[i];
               return (
@@ -224,10 +250,24 @@ export default function DraftPage() {
                     <>
                       <div className="text-sm text-zinc-300">{r.team_name}</div>
                       <div className="text-lg font-semibold">{r.player_name}</div>
-                      <div className="text-sm mt-1">Price: {Number(r.price).toLocaleString()}</div>
+                      <div className="mt-1 text-sm text-zinc-400">
+                        {typeof r.price !== "undefined" && (
+                          <div>Price: {Number(r.price).toLocaleString()}</div>
+                        )}
+                        <div>
+                          Fantasy points: {
+                            rosterSummaries[r.player_id]?.fantasy_pts != null
+                              ? Number(rosterSummaries[r.player_id].fantasy_pts).toLocaleString()
+                              : "—"
+                          }
+                          {rosterSummaries[r.player_id]?.fppg != null && (
+                            <span className="ml-2 text-zinc-500">(FPPG {Number(rosterSummaries[r.player_id].fppg).toLocaleString()})</span>
+                          )}
+                        </div>
+                      </div>
                       <div className="mt-3">
                         <Button variant="ghost" onClick={() => doSell(r)} disabled={started}>
-                          Sell ({Number(r.price).toLocaleString()})
+                          Sell{typeof r.price !== "undefined" ? ` (${Number(r.price).toLocaleString()})` : ""}
                         </Button>
                       </div>
                     </>
@@ -238,62 +278,41 @@ export default function DraftPage() {
           </div>
         </section>
 
-        {/* Market — 5 карточек в ряд */}
+        {/* Market */}
         <section className="mt-8">
           <h2 className="text-lg font-semibold mb-3">Market</h2>
-
-          {loading && <p className="text-zinc-300 mt-4">Loading…</p>}
-          {err && <p className="text-red-400 mt-4">{err}</p>}
-
           {!loading && !err && (
-            <>
-              <div className="mt-2 grid grid-cols-5 gap-4">
-                {market.map((p) => {
-                  const owned = roster.some((r) => r.player_id === p.player_id);
-                  const disabled = !canBuy(p);
-                  return (
-                    <div
-                      key={p.player_id}
-                      className={`rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10 ${!disabled ? "cursor-pointer" : "opacity-90"}`}
-                      onClick={() => openPlayerModal(p)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm text-zinc-400">{p.team_name}</div>
-                          <div className="text-lg font-semibold">{p.player_name}</div>
-                        </div>
-                        {owned && <Pill>Owned</Pill>}
+            <div className="mt-2 grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {market.map((p) => {
+                const owned = roster.some((r) => r.player_id === p.player_id);
+                const disabled = !canBuy(p);
+                return (
+                  <div key={p.player_id}
+                    className={`rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10 ${!disabled ? "cursor-pointer" : "opacity-90"}`}
+                    onClick={() => openPlayerModal(p)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm text-zinc-400">{p.team_name}</div>
+                        <div className="text-lg font-semibold">{p.player_name}</div>
                       </div>
-
-                      <div className="mt-3">
-                        {owned ? (
-                          <Button
-                            variant="ghost"
-                            onClick={(e) => { e.stopPropagation(); doSell(p); }}
-                            disabled={started}
-                            className="w-full"
-                          >
-                            Sell ({Number(p.price).toLocaleString()})
-                          </Button>
-                        ) : (
-                          <Button
-                            onClick={(e) => { e.stopPropagation(); doBuy(p); }}
-                            disabled={disabled}
-                            className="w-full"
-                          >
-                            Buy for {Number(p.price).toLocaleString()}
-                          </Button>
-                        )}
-                      </div>
+                      {owned && <Pill>Owned</Pill>}
                     </div>
-                  );
-                })}
-              </div>
-
-              {market.length === 0 && (
-                <div className="p-6 text-center text-zinc-300">No players in market.</div>
-              )}
-            </>
+                    <div className="mt-3">
+                      {owned ? (
+                        <Button variant="ghost" onClick={(e) => { e.stopPropagation(); doSell(p); }} disabled={started} className="w-full">
+                          Sell ({Number(p.price).toLocaleString()})
+                        </Button>
+                      ) : (
+                        <Button onClick={(e) => { e.stopPropagation(); doBuy(p); }} disabled={disabled} className="w-full">
+                          Buy for {Number(p.price).toLocaleString()}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </section>
       </main>
@@ -319,43 +338,30 @@ export default function DraftPage() {
       >
         {!selected ? null : (
           <>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs text-zinc-400">Team</div>
-                <div className="text-lg font-semibold">{selected.team_name}</div>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs text-zinc-400">Price</div>
-                <div className="text-lg font-semibold">{Number(selected.price).toLocaleString()}</div>
-              </div>
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs text-zinc-400">Budget left</div>
-                <div className="text-lg font-semibold">{budgetLeft.toLocaleString()}</div>
-              </div>
+            <div className="grid sm:grid-cols-3 gap-4">
+              <InfoTile label="Team" value={selected.team_name} />
+              <InfoTile label="Price" value={Number(selected.price).toLocaleString()} />
+              <InfoTile label="Budget left" value={budgetLeft.toLocaleString()} />
             </div>
 
             <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <h4 className="font-semibold mb-2">Player stats (aggregate)</h4>
-              {statLoading && <p className="text-sm text-zinc-300">Loading…</p>}
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="font-semibold">Player stats (aggregated)</h4>
+                {statLoading && <span className="text-xs text-zinc-400">Loading…</span>}
+              </div>
               {statErr && <p className="text-sm text-red-400">{statErr}</p>}
+              {!statLoading && !stat && <p className="text-sm text-zinc-300">No data.</p>}
               {!statLoading && stat && (
-                <div className="grid grid-cols-4 gap-3 text-sm">
-                  <div className="rounded-lg bg-black/40 border border-white/10 p-3">
-                    <div className="text-xs text-zinc-400">Maps</div>
-                    <div className="text-xl font-semibold">{stat.games}</div>
-                  </div>
-                  <div className="rounded-lg bg-black/40 border border-white/10 p-3">
-                    <div className="text-xs text-zinc-400">K/D</div>
-                    <div className="text-xl font-semibold">{stat.kd ?? "—"}</div>
-                  </div>
-                  <div className="rounded-lg bg-black/40 border border-white/10 p-3">
-                    <div className="text-xs text-zinc-400">ADR</div>
-                    <div className="text-xl font-semibold">{stat.adr ?? "—"}</div>
-                  </div>
-                  <div className="rounded-lg bg-black/40 border border-white/10 p-3">
-                    <div className="text-xs text-zinc-400">Rating 2.0</div>
-                    <div className="text-xl font-semibold">{stat.rating2 ?? "—"}</div>
-                  </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                  <InfoTile label="Maps" value={stat.maps} />
+                  <InfoTile label="Rounds" value={stat.rounds ?? "—"} />
+                  <InfoTile label="K/D" value={stat.kd === 999 ? "∞" : (stat.kd ?? "—")} />
+                  <InfoTile label="HS%" value={stat.hs_pct != null ? `${stat.hs_pct}%` : "—"} />
+                  <InfoTile label="ADR" value={stat.adr ?? "—"} />
+                  <InfoTile label="Rating 2.0" value={stat.rating2 ?? "—"} />
+                  <InfoTile label="Opening rounds" value={stat.opening_pct != null ? `${stat.opening_pct}%` : "—"} />
+                  <InfoTile label="Multi-kill rounds" value={stat.multi_pct != null ? `${stat.multi_pct}%` : "—"} />
+                  <InfoTile label="Support rounds" value={stat.support_pct != null ? `${stat.support_pct}%` : "—"} />
                 </div>
               )}
             </div>

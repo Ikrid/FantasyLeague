@@ -34,7 +34,7 @@ class ScoringParams:
     ROUND_MAX: float = 1.25
     TEAM_WIN_BONUS: float = 2.0
     PTS_MIN: float = -20.0
-    PTS_MAX: float = 60.0
+    PTS_MAX: float = 9999.0
 
 
 def clamp(v: float, lo: float, hi: float) -> float:

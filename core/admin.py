@@ -1,5 +1,7 @@
 from django.contrib import admin
-from .models import Team, Player, Tournament, League, FantasyTeam, FantasyRoster, Match, Map, PlayerMapStats, FantasyPoints, PlayerPrice
+from .models import Team, Player, Tournament, League, FantasyTeam, FantasyRoster, Match, Map, PlayerMapStats, \
+    FantasyPoints, PlayerPrice, TournamentTeam
+
 
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
@@ -12,6 +14,7 @@ admin.site.register(Tournament)
 admin.site.register(League)
 admin.site.register(FantasyTeam)
 admin.site.register(FantasyRoster)
+admin.site.register(TournamentTeam)
 
 @admin.register(Match)
 class MatchAdmin(admin.ModelAdmin):
