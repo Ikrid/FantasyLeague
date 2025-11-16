@@ -1,20 +1,17 @@
-﻿from typing import Dict, Any, Optional
+﻿from typing import Dict, Any, Optional, Iterable
 from datetime import timedelta
+
+from django.contrib.auth.models import User
 from django.db import transaction
 from django.utils import timezone
 from django.db.models import Q, Sum, Count, Avg, FloatField
 from django.db.models.functions import Coalesce, Cast
-from django.contrib.auth.models import User
-from typing import Iterable
-from .scoring import calc_points
-from django.db import transaction
-from .models import Map, PlayerMapStats, FantasyRoster, FantasyPoints
 
+from .scoring import calc_points
 from .models import (
     Team, Player, Tournament, League, FantasyTeam, FantasyRoster,
     Match, Map, PlayerMapStats, FantasyPoints, PlayerPrice, TournamentTeam
 )
-
 
 # =================== helpers ===================
 
@@ -73,10 +70,9 @@ def generate_market_prices_for_tournament(
     now = timezone.now()
     since = now - timedelta(days=use_days_window)
 
-    # --- команды турнира: строго TournamentTeam -> fallback по матчам; НИКАКИХ "взять всех" ---
+    # --- участники турнира
     team_ids = list(_team_ids_for_tournament(tournament_id))
     if not team_ids:
-        # Нет участников и матчей — нечего генерировать
         return 0
 
     players = Player.objects.filter(team_id__in=team_ids).select_related("team")
@@ -230,17 +226,51 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         .select_related("player", "player__team")
         .filter(fantasy_team=ft)
     )
+
+    roster_player_ids = list(roster_qs.values_list("player_id", flat=True))
+
+    # Map: цена игрока в текущем турнире
+    price_by_player = {}
+    if league.tournament_id and roster_player_ids:
+        price_by_player = dict(
+            PlayerPrice.objects
+            .filter(tournament_id=league.tournament_id, player_id__in=roster_player_ids)
+            .values_list("player_id", "price")
+        )
+
+    # Map: total/avg фэнтези-очков по этому турниру
+    total_by_player: Dict[int, float] = {}
+    avg_by_player: Dict[int, float] = {}
+    if league.tournament_id and roster_player_ids:
+        fpts_rows = (
+            FantasyPoints.objects
+            .filter(player_id__in=roster_player_ids, map__match__tournament_id=league.tournament_id)
+            .values("player_id")
+            .annotate(total=Coalesce(Cast(Sum("points"), FloatField()), 0.0),
+                      avg=Coalesce(Cast(Avg("points"), FloatField()), 0.0))
+        )
+        for r in fpts_rows:
+            pid = r["player_id"]
+            total_by_player[pid] = float(r["total"] or 0.0)
+            avg_by_player[pid] = float(r["avg"] or 0.0)
+
     roster = [
         {
             "player_id": r.player_id,
             "player_name": r.player.nickname,
             "team_id": r.player.team_id,
             "team_name": getattr(r.player.team, "name", None),
+            # добавили:
+            "price": price_by_player.get(r.player_id),
+            "fantasy_pts": round(total_by_player.get(r.player_id, 0.0), 2)
+                           if r.player_id in total_by_player else None,
+            "fppg": round(avg_by_player.get(r.player_id, 0.0), 2)
+                    if r.player_id in avg_by_player else None,
         }
         for r in roster_qs
     ]
 
-    # Счётчик игроков по реальным командам в ростере — для ограничения "max per team"
+    # Счётчик игроков по реальным командам — для ограничения "max per team"
     team_counts: Dict[str, int] = {}
     for r in roster_qs:
         tid = r.player.team_id
@@ -259,7 +289,7 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         {
             "player_id": pp.player_id,
             "player_name": pp.player.nickname,
-            "team_id": pp.player.team_id,                    # ВАЖНО: нужен фронту
+            "team_id": pp.player.team_id,
             "team_name": getattr(pp.player.team, "name", None),
             "price": pp.price,
         }
@@ -273,7 +303,7 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         "tournament_id": league.tournament_id,
 
         "fantasy_team": {"id": ft.id, "budget_left": ft.budget_left},
-        "started": False,                         # пока турниры не стартовали
+        "started": False,                         # можно заменить реальной логикой старта турнира
         "limits": {"slots": 5, "max_per_team": 2},
         "team_counts": team_counts,
 
@@ -312,12 +342,11 @@ def handle_draft_sell(user: User, league_id: int, player_id: int) -> Dict[str, A
     return {"ok": True, "budget_left": ft.budget_left}
 
 
-def recalc_fantasy_points(scope: str, obj_id: int) -> None:
-    pass
-
-
 def get_player_summary(player_id: int, tournament_id: Optional[int] = None) -> Dict[str, Any]:
-    # Сырые статы (как было)
+    """
+    Краткая сводка по игроку (используется в модалке).
+    Оставлено минимально необходимое; дополнительные поля можно добавить при необходимости.
+    """
     qs = PlayerMapStats.objects.filter(player_id=player_id)
     if tournament_id:
         qs = qs.filter(map__match__tournament_id=tournament_id)
@@ -341,13 +370,13 @@ def get_player_summary(player_id: int, tournament_id: Optional[int] = None) -> D
         "kills": kills,
         "deaths": deaths,
         "kd": kd,
-        # ВАЖНО: эти два поля читает фронт
         "fantasy_pts": round(total_fp, 2) if maps_with_fp else None,
         "fppg": fppg,
     }
 
 
 # ====== Пересчёт очков ======
+
 def recalc_map(map_id: int) -> int:
     """
     Пересчитать FantasyPoints для одной карты.
@@ -417,6 +446,7 @@ def recalc_tournament(tournament_id: int) -> int:
     for m in Map.objects.select_related("match").filter(match__tournament_id=tournament_id):
         total += recalc_map(m.id)
     return total
+
 
 def recalc_fantasy_points(scope: str, obj_id: int) -> int:
     if scope == "map":

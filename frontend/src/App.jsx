@@ -251,9 +251,9 @@ function TournamentsSection() {
 
 function FAQSection() {
   const items = [
-    { q: "Что это такое?", a: "Фэнтези-менеджер по CS2: собираешь 5 игроков до старта турнира и набираешь очки по их реальным матчам." },
-    { q: "Как выбрать игроков?", a: "Открой турнир, нажми Enter — увидишь 5 слотов сверху и рынок игроков снизу. Не больше 2 игроков из одной команды." },
-    { q: "Когда нельзя менять состав?", a: "После старта турнира состав блокируется. Баланс и очки считаются автоматически." },
+{ q: "What is this?", a: "A CS2 fantasy manager: you pick 5 players before the tournament starts and earn points based on their real match performances." },
+{ q: "How do I choose players?", a: "Open the tournament, press Enter — you’ll see 5 slots at the top and the player market below. No more than 2 players from the same team." },
+{ q: "When can’t I change my lineup?", a: "Once the tournament starts, your lineup is locked. Balance and points are calculated automatically." },
   ];
   return (
     <section id="faq" className="border-t border-white/10 bg-black">

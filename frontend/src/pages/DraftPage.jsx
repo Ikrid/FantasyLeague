@@ -78,8 +78,6 @@ export default function DraftPage() {
   const [statErr, setStatErr] = useState("");
   const [stat, setStat] = useState(null);
 
-  const [rosterSummaries, setRosterSummaries] = useState({});
-
   async function load() {
     setErr("");
     setLoading(true);
@@ -109,6 +107,9 @@ export default function DraftPage() {
   const rosterCount = roster.length;
   const canBuyMore = !started && rosterCount < maxSlots;
 
+  // 🔢 Сумма фэнтези-очков всех игроков в ростере
+  const totalFantasyPoints = roster.reduce((sum, r) => sum + (r?.fantasy_pts || 0), 0);
+
   useEffect(() => {
     async function loadMatches() {
       if (!tournamentId) return;
@@ -123,30 +124,6 @@ export default function DraftPage() {
     }
     loadMatches();
   }, [tournamentId]);
-
-  // Загружаем краткие сводки по игрокам из ростера (для карточек ростера)
-  useEffect(() => {
-    let cancelled = false;
-    async function loadRosterSummaries() {
-      if (!roster?.length) { setRosterSummaries({}); return; }
-      const entries = await Promise.all(
-        roster.map(async (r) => {
-          try {
-            const qs = tournamentId ? `?tournament=${tournamentId}` : "";
-            // FIX: убран лишний слэш перед ? (должно быть .../${id}${qs})
-            const sum = await apiGet(`/player-summary/${r.player_id}${qs}`, false);
-            return [r.player_id, { fantasy_pts: sum.fantasy_pts, fppg: sum.fppg }];
-          } catch (e) {
-            console.error("player-summary failed", e);
-            return [r.player_id, { fantasy_pts: null, fppg: null }];
-          }
-        })
-      );
-      if (!cancelled) setRosterSummaries(Object.fromEntries(entries));
-    }
-    loadRosterSummaries();
-    return () => { cancelled = true; };
-  }, [JSON.stringify(roster), tournamentId]);
 
   const market = useMemo(() => (state?.market || []).slice(), [state]);
 
@@ -178,7 +155,7 @@ export default function DraftPage() {
     }
   }
 
-  // Модалка с серверной агрегацией
+  // Модалка с серверной агрегацией (подробная статистика)
   async function openPlayerModal(p) {
     setSelected(p);
     setStat(null);
@@ -186,7 +163,6 @@ export default function DraftPage() {
     setStatLoading(true);
     try {
       const qs = tournamentId ? `?tournament=${tournamentId}` : "";
-      // FIX: убран лишний слэш перед ? (должно быть .../${id}${qs})
       const data = await apiGet(`/player-summary/${p.player_id}${qs}`, false);
       setStat(data);
     } catch (e) {
@@ -215,6 +191,7 @@ export default function DraftPage() {
           <Pill>Budget left: {budgetLeft.toLocaleString()}</Pill>
           <Pill>Slots: {rosterCount}/{maxSlots}</Pill>
           <Pill>Max per team: {maxPerTeam}</Pill>
+          <Pill>Total fantasy: {totalFantasyPoints.toLocaleString()}</Pill>
           {started && <Pill>Locked</Pill>}
         </div>
 
@@ -256,12 +233,12 @@ export default function DraftPage() {
                         )}
                         <div>
                           Fantasy points: {
-                            rosterSummaries[r.player_id]?.fantasy_pts != null
-                              ? Number(rosterSummaries[r.player_id].fantasy_pts).toLocaleString()
+                            r.fantasy_pts != null
+                              ? Number(r.fantasy_pts).toLocaleString()
                               : "—"
                           }
-                          {rosterSummaries[r.player_id]?.fppg != null && (
-                            <span className="ml-2 text-zinc-500">(FPPG {Number(rosterSummaries[r.player_id].fppg).toLocaleString()})</span>
+                          {r.fppg != null && (
+                            <span className="ml-2 text-zinc-500">(FPPG {Number(r.fppg).toLocaleString()})</span>
                           )}
                         </div>
                       </div>

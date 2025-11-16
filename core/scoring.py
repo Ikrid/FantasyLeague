@@ -29,7 +29,7 @@ class ScoringParams:
     RATING_PENALTY_090: float = -2.0
 
     # контекст и бонусы
-    ROUND_BASE: float = 20.0      # CS2 MR12 → базовая длина
+    ROUND_BASE: float = 20.0
     ROUND_MIN: float = 0.85
     ROUND_MAX: float = 1.25
     TEAM_WIN_BONUS: float = 2.0

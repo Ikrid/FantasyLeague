@@ -2,6 +2,7 @@
 Django settings for FantasyLeague project.
 """
 from pathlib import Path
+from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -83,6 +84,18 @@ REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
+}
+
+# Увеличиваем время жизни токенов (access и refresh)
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),     # было 5 минут по умолчанию
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": False,                  # можно True, если хочешь ротацию
+    "BLACKLIST_AFTER_ROTATION": False,
+    "UPDATE_LAST_LOGIN": False,
+    # На dev это ок; на проде — подтверди часы/таймзону на сервере
+    "ALGORITHM": "HS256",
+    "SIGNING_KEY": SECRET_KEY,
 }
 
 # ==== CORS (dev) ====

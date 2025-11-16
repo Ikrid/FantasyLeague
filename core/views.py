@@ -33,6 +33,16 @@ class PlayerViewSet(viewsets.ModelViewSet):
     serializer_class = PlayerSerializer
     permission_classes = [AllowAny]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        team = self.request.query_params.get("team")
+        if team:
+            try:
+                qs = qs.filter(team_id=int(team))
+            except (TypeError, ValueError):
+                pass
+        return qs
+
 
 class TournamentViewSet(viewsets.ModelViewSet):
     queryset = Tournament.objects.all().order_by("id")
@@ -48,9 +58,15 @@ class TournamentTeamViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = super().get_queryset()
         t = self.request.query_params.get("tournament")
+        team = self.request.query_params.get("team")
         if t:
             try:
                 qs = qs.filter(tournament_id=int(t))
+            except (TypeError, ValueError):
+                pass
+        if team:
+            try:
+                qs = qs.filter(team_id=int(team))
             except (TypeError, ValueError):
                 pass
         return qs
@@ -89,17 +105,62 @@ class MatchViewSet(viewsets.ModelViewSet):
     serializer_class = MatchSerializer
     permission_classes = [AllowAny]
 
+    # фильтрация по турниру: ?tournament=<id>
+    def get_queryset(self):
+        qs = super().get_queryset()
+        t = self.request.query_params.get("tournament")
+        if t:
+            try:
+                qs = qs.filter(tournament_id=int(t))
+            except (TypeError, ValueError):
+                pass
+        return qs
+
 
 class MapViewSet(viewsets.ModelViewSet):
     queryset = Map.objects.select_related("match").all().order_by("id")
     serializer_class = MapSerializer
     permission_classes = [AllowAny]
 
+    # фильтрация по матчу: ?match=<id>
+    def get_queryset(self):
+        qs = super().get_queryset()
+        m = self.request.query_params.get("match")
+        if m:
+            try:
+                qs = qs.filter(match_id=int(m))
+            except (TypeError, ValueError):
+                pass
+        return qs
+
 
 class PlayerMapStatsViewSet(viewsets.ModelViewSet):
     queryset = PlayerMapStats.objects.select_related("map", "player").all().order_by("id")
     serializer_class = PlayerMapStatsSerializer
     permission_classes = [AllowAny]
+
+    # удобные фильтры: ?map=, ?player=, ?match=
+    def get_queryset(self):
+        qs = super().get_queryset()
+        map_id = self.request.query_params.get("map")
+        player_id = self.request.query_params.get("player")
+        match_id = self.request.query_params.get("match")
+        if map_id:
+            try:
+                qs = qs.filter(map_id=int(map_id))
+            except (TypeError, ValueError):
+                pass
+        if player_id:
+            try:
+                qs = qs.filter(player_id=int(player_id))
+            except (TypeError, ValueError):
+                pass
+        if match_id:
+            try:
+                qs = qs.filter(map__match_id=int(match_id))
+            except (TypeError, ValueError):
+                pass
+        return qs
 
 
 class MarketViewSet(viewsets.ModelViewSet):
@@ -216,7 +277,31 @@ class PlayerSummaryView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, player_id):
-        tournament_id = request.query_params.get("tournament")
+        tournament_id = self.request.query_params.get("tournament")
         data = get_player_summary(player_id, tournament_id)
         return Response(data)
 
+
+# ==== MATCH PLAYERS (игроки, реально игравшие в матче) ====
+
+class MatchPlayersView(APIView):
+    """
+    GET /api/match-players?match=<id>
+    Возвращает плоский список игроков (PlayerSerializer), которые встречаются
+    в PlayerMapStats на картах данного матча (объединение по всем картам).
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        match_id = request.query_params.get("match")
+        if not match_id:
+            return Response({"detail": "Param 'match' is required"}, status=400)
+        try:
+            m = Match.objects.get(pk=int(match_id))
+        except (Match.DoesNotExist, ValueError, TypeError):
+            return Response({"detail": "Match not found"}, status=404)
+
+        maps_qs = Map.objects.filter(match=m)
+        players_qs = Player.objects.filter(playermapstats__map__in=maps_qs).distinct()
+        data = PlayerSerializer(players_qs, many=True).data
+        return Response(data)

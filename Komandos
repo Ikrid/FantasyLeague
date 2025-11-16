@@ -11,4 +11,3 @@ cd frontend
 npm i
 npm i -D @vitejs/plugin-react
 npm run dev
-# открой http://localhost:5173

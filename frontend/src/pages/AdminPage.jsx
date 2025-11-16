@@ -90,25 +90,9 @@ function Card({ title, action, children }) {
     </div>
   );
 }
-const Note = ({ children }) => <p className="text-sm text-zinc-300 mt-2">{children}</p>;
+const Note = ({ children, className = "" }) => <p className={`text-sm text-zinc-300 mt-2 ${className}`}>{children}</p>;
 
-/* =============== Simple Modal =============== */
-function Modal({ title, onClose, children }) {
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-zinc-950 p-5 shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <div className="text-lg font-semibold">{title}</div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white">✕</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/* ====== Row components (без hooks-in-map проблем) ====== */
+/* ====== small inputs ====== */
 function InlineText({ value, onChange }) {
   return (
     <input
@@ -118,16 +102,22 @@ function InlineText({ value, onChange }) {
     />
   );
 }
+function StatNumber({ value, onChange, className = "" }) {
+  return (
+    <input
+      className={`w-24 bg-transparent border border-white/10 rounded-lg px-2 py-1 text-sm ${className}`}
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
 
+/* ====== list rows ====== */
 function TournamentRow({ t, onSave, onDelete }) {
   const [name, setName] = useState(t.name || "");
   const [start, setStart] = useState(t.start_date || "");
   const [end, setEnd] = useState(t.end_date || "");
-  useEffect(() => {
-    setName(t.name || "");
-    setStart(t.start_date || "");
-    setEnd(t.end_date || "");
-  }, [t]);
+  useEffect(() => { setName(t.name || ""); setStart(t.start_date || ""); setEnd(t.end_date || ""); }, [t]);
   return (
     <tr className="border-t border-white/10">
       <td className="py-2 pr-2">{t.id}</td>
@@ -141,14 +131,10 @@ function TournamentRow({ t, onSave, onDelete }) {
     </tr>
   );
 }
-
 function TeamRow({ t, onSave, onDelete }) {
   const [name, setName] = useState(t.name || "");
   const [rank, setRank] = useState(t.world_rank ?? "");
-  useEffect(() => {
-    setName(t.name || "");
-    setRank(t.world_rank ?? "");
-  }, [t]);
+  useEffect(() => { setName(t.name || ""); setRank(t.world_rank ?? ""); }, [t]);
   return (
     <tr className="border-t border-white/10">
       <td className="py-2 pr-2">{t.id}</td>
@@ -161,14 +147,10 @@ function TeamRow({ t, onSave, onDelete }) {
     </tr>
   );
 }
-
 function PlayerRow({ p, teams, onSave, onDelete }) {
   const [nick, setNick] = useState(p.nickname || "");
   const [teamId, setTeamId] = useState(String(p.team || ""));
-  useEffect(() => {
-    setNick(p.nickname || "");
-    setTeamId(String(p.team || ""));
-  }, [p]);
+  useEffect(() => { setNick(p.nickname || ""); setTeamId(String(p.team || "")); }, [p]);
   return (
     <tr className="border-t border-white/10">
       <td className="py-2 pr-2">{p.id}</td>
@@ -180,9 +162,7 @@ function PlayerRow({ p, teams, onSave, onDelete }) {
           onChange={(e) => setTeamId(e.target.value)}
         >
           <option value="">— none —</option>
-          {teams.map((t) => (
-            <option key={t.id} value={String(t.id)}>{t.name}</option>
-          ))}
+          {teams.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
         </select>
       </td>
       <td className="py-2 pr-2 flex gap-2">
@@ -192,34 +172,21 @@ function PlayerRow({ p, teams, onSave, onDelete }) {
     </tr>
   );
 }
-
 function LeagueRow({ l, tournaments, onSave, onDelete }) {
   const [name, setName] = useState(l.name || "");
   const [tId, setTId] = useState(String(l.tournament || ""));
   const [bud, setBud] = useState(String(l.budget || ""));
   const [bad, setBad] = useState(String(l.max_badges || 0));
   const [lock, setLock] = useState(l.lock_policy || "soft");
-  useEffect(() => {
-    setName(l.name || "");
-    setTId(String(l.tournament || ""));
-    setBud(String(l.budget || ""));
-    setBad(String(l.max_badges || 0));
-    setLock(l.lock_policy || "soft");
-  }, [l]);
+  useEffect(() => { setName(l.name || ""); setTId(String(l.tournament || "")); setBud(String(l.budget || "")); setBad(String(l.max_badges || 0)); setLock(l.lock_policy || "soft"); }, [l]);
   return (
     <tr className="border-t border-white/10">
       <td className="py-2 pr-2">{l.id}</td>
       <td className="py-2 pr-2"><InlineText value={name} onChange={setName} /></td>
       <td className="py-2 pr-2">
-        <select
-          className="bg-transparent border border-white/10 rounded-lg px-2 py-1 text-sm"
-          value={tId}
-          onChange={(e) => setTId(e.target.value)}
-        >
+        <select className="bg-transparent border border-white/10 rounded-lg px-2 py-1 text-sm" value={tId} onChange={(e) => setTId(e.target.value)}>
           <option value="">— none —</option>
-          {tournaments.map((t) => (
-            <option key={t.id} value={String(t.id)}>{t.name}</option>
-          ))}
+          {tournaments.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
         </select>
       </td>
       <td className="py-2 pr-2"><InlineText value={bud} onChange={setBud} /></td>
@@ -230,6 +197,302 @@ function LeagueRow({ l, tournaments, onSave, onDelete }) {
         <Button variant="ghost" onClick={() => onDelete(l.id, `Delete league "${l.name}"?`)}>Delete</Button>
       </td>
     </tr>
+  );
+}
+
+/* ============ Match Details (maps + only the two teams' players, editable PlayerMapStats) ============ */
+function Modal({ title, onClose, children }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      {/* расширенная модалка */}
+      <div className="relative w-[96vw] max-w-[1600px] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950 p-5 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <div className="text-lg font-semibold">{title}</div>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white">✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// редактируемые поля
+const EDITABLE_FIELDS = [
+  "kills","deaths","assists","hs","adr","rating2",
+  "opening_kills","opening_deaths","flash_assists",
+  "cl_1v2","cl_1v3","cl_1v4","cl_1v5",
+  "mk_3k","mk_4k","mk_5k","utility_dmg"
+];
+
+function getId(x) {
+  if (x == null) return null;
+  if (typeof x === "number" || typeof x === "string") return Number(x);
+  if (x?.id != null) return Number(x.id);
+  if (x?.team_id != null) return Number(x.team_id);
+  return null;
+}
+function getMapId(obj) { if (!obj) return null; return obj.id ?? obj.map_id ?? obj.pk ?? null; }
+function getMapLabel(obj) { return obj?.map_name || obj?.name || `#${getMapId(obj)}`; }
+
+function MatchDetailsModal({ matchId, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [match, setMatch] = useState(null);
+
+  const [maps, setMaps] = useState([]);
+  const [mapId, setMapId] = useState("");
+
+  // Полные ростеры команд
+  const [team1Players, setTeam1Players] = useState([]);
+  const [team2Players, setTeam2Players] = useState([]);
+
+  // текущие stats для выбранной карты
+  const [stats, setStats] = useState([]);
+  const [msg, setMsg] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // ===== загрузка матча, карт (сортируем), полных ростеров
+  async function loadAll(mid) {
+    setLoading(true); setMsg("");
+    try {
+      const m = await apiGet(`/matches/${mid}/`);
+      setMatch(m);
+
+      const t1Id = getId(m.team1_id ?? m.team1);
+      const t2Id = getId(m.team2_id ?? m.team2);
+
+      // Карты: сортируем по map_index (возрастание)
+      const ms = await apiGet(`/maps?match=${mid}`);
+      (ms || []).sort((a, b) => (a?.map_index ?? 0) - (b?.map_index ?? 0));
+      setMaps(ms || []);
+
+      // Полные составы команд
+      const [p1, p2] = await Promise.all([
+        t1Id ? apiGet(`/players?team=${t1Id}`) : Promise.resolve([]),
+        t2Id ? apiGet(`/players?team=${t2Id}`) : Promise.resolve([]),
+      ]);
+      setTeam1Players(p1 || []);
+      setTeam2Players(p2 || []);
+
+      // выберем первую карту
+      const first = String(getMapId(ms?.[0]) || "");
+      setMapId(first);
+      setStats([]);
+    } catch (e) {
+      setMsg(String(e.message || e));
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { loadAll(matchId); }, [matchId]);
+
+  // загружать статы при смене карты
+  useEffect(() => {
+    if (!mapId) return;
+    setStats([]);
+    (async () => {
+      setMsg("");
+      try {
+        const st = await apiGet(`/player-map-stats?map=${mapId}`);
+        setStats(Array.isArray(st) ? st : []);
+      } catch (e) {
+        setStats([]);
+        setMsg(String(e.message || e));
+      }
+    })();
+  }, [mapId]);
+
+  // собрать строки для UI: всегда из ПОЛНЫХ ростеров, поверх накладываем статы
+  const rows = useMemo(() => {
+    const t1n = match?.team1_name ?? "Team 1";
+    const t2n = match?.team2_name ?? "Team 2";
+    const t1id = getId(match?.team1_id ?? match?.team1);
+    const t2id = getId(match?.team2_id ?? match?.team2);
+
+    const byPid = new Map();
+    for (const s of stats || []) {
+      const pid = getId(s.player ?? s.player_id);
+      if (pid != null) byPid.set(pid, s);
+    }
+
+    function makeRowFromPlayer(p, teamName, teamId) {
+      const existing = byPid.get(p.id) || null;
+      const base = existing || {
+        id: null,
+        map: mapId ? Number(mapId) : null,
+        player: p.id,
+        team: teamId ?? p.team ?? null,
+        player_name: p.nickname,
+        team_name: teamName,
+      };
+      for (const k of EDITABLE_FIELDS) if (!(k in base)) base[k] = base[k] ?? null;
+      return { ...base, _player: p, _teamName: teamName, _teamId: teamId };
+    }
+
+    const srcT1 = team1Players || [];
+    const srcT2 = team2Players || [];
+
+    const t1Rows = srcT1
+      .filter((p, i, arr) => arr.findIndex(x => x.id === p.id) === i)
+      .map(p => makeRowFromPlayer(p, t1n, t1id))
+      .sort((a,b) => (a._player?.nickname || "").localeCompare(b._player?.nickname || ""));
+
+    const t2Rows = srcT2
+      .filter((p, i, arr) => arr.findIndex(x => x.id === p.id) === i)
+      .map(p => makeRowFromPlayer(p, t2n, t2id))
+      .sort((a,b) => (a._player?.nickname || "").localeCompare(b._player?.nickname || ""));
+
+    return { team1Name: t1n, team2Name: t2n, team1: t1Rows, team2: t2Rows };
+  }, [stats, team1Players, team2Players, mapId, match]);
+
+  function updateCell(_which, idx, key, value, isTeam2 = false) {
+    const cloned = { team1: [...rows.team1], team2: [...rows.team2], team1Name: rows.team1Name, team2Name: rows.team2Name };
+    const arr = isTeam2 ? cloned.team2 : cloned.team1;
+    const v = value === "" ? null : (isNaN(Number(value)) ? value : Number(value));
+    arr[idx] = { ...arr[idx], [key]: v };
+    const merged = [...cloned.team1, ...cloned.team2].map((r) => {
+      const obj = {}; for (const k of Object.keys(r)) obj[k] = r[k]; return obj;
+    });
+    setStats(merged);
+  }
+
+  async function saveRow(s) {
+    try {
+      const body = {};
+      for (const k of EDITABLE_FIELDS) if (k in s) body[k] = s[k];
+      body.map = Number(mapId);
+      body.player = getId(s.player ?? s._player?.id ?? s.player_id);
+
+      const t1id = getId(match?.team1_id ?? match?.team1);
+      const inTeam1 = team1Players.some(p => p.id === body.player);
+      body.team = getId(s._teamId ?? (inTeam1 ? t1id : getId(match?.team2_id ?? match?.team2)));
+
+      if (s.id) {
+        await apiPatch(`/player-map-stats/${s.id}/`, body);
+      } else {
+        const created = await apiPost(`/player-map-stats/`, body);
+        setStats((prev) => prev.map((x) => (x === s ? created : x)));
+      }
+      const st = await apiGet(`/player-map-stats?map=${mapId}`);
+      setStats(Array.isArray(st) ? st : []);
+      setMsg("Saved");
+    } catch (e) { setMsg(String(e.message || e)); }
+  }
+
+  async function saveAll() {
+    setSaving(true); setMsg("");
+    try {
+      const t1id = getId(match?.team1_id ?? match?.team1);
+      const t2id = getId(match?.team2_id ?? match?.team2);
+
+      for (const s of [...rows.team1, ...rows.team2]) {
+        const body = {};
+        for (const k of EDITABLE_FIELDS) if (k in s) body[k] = s[k];
+        body.map = Number(mapId);
+        body.player = getId(s.player ?? s._player?.id ?? s.player_id);
+        const inTeam1 = team1Players.some(p => p.id === body.player);
+        body.team = getId(s._teamId ?? (inTeam1 ? t1id : t2id));
+
+        if (s.id) await apiPatch(`/player-map-stats/${s.id}/`, body);
+        else await apiPost(`/player-map-stats/`, body);
+      }
+      const st = await apiGet(`/player-map-stats?map=${mapId}`);
+      setStats(st);
+      setMsg("All rows saved");
+    } catch (e) {
+      setMsg(String(e.message || e));
+    } finally { setSaving(false); }
+  }
+
+  return (
+    <Modal title={match ? `Match #${match.id} — ${match.team1_name} vs ${match.team2_name}` : `Match #${matchId}`} onClose={onClose}>
+      {loading ? (
+        <Note>Loading…</Note>
+      ) : (
+        <div className="grid gap-4">
+          {/* Maps header (отсортированы по map_index) */}
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm text-zinc-300">Maps:</span>
+            {maps.map((mp) => {
+              const id = String(getMapId(mp));
+              return (
+                <button
+                  key={id}
+                  onClick={() => setMapId(id)}
+                  className={`px-3 py-1 rounded-lg border ${id === String(mapId) ? "bg-white text-black border-white" : "border-white/20 hover:bg-white/10"}`}
+                  title={getMapLabel(mp)}
+                >
+                  {getMapLabel(mp)}
+                </button>
+              );
+            })}
+            {!maps.length && <Note>No maps.</Note>}
+            <div className="ml-auto"><Button onClick={saveAll} disabled={saving || !(rows.team1.length + rows.team2.length)}>{saving ? "Saving…" : "Save all"}</Button></div>
+          </div>
+
+          {/* TEAM 1 */}
+          <div className="rounded-xl border border-white/10">
+            <div className="px-3 py-2 font-semibold bg-white/5">{rows.team1Name}</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-zinc-300">
+                  <tr>
+                    <th className="py-2 pr-2">Player</th>
+                    {EDITABLE_FIELDS.map((k) => <th key={k} className="py-2 pr-2">{k.toUpperCase()}</th>)}
+                    <th className="py-2 pr-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.team1.map((s, i) => (
+                    <tr key={`${s._player?.id ?? s.player}-${i}`} className="border-t border-white/10">
+                      <td className="py-2 pr-2">{s._player?.nickname ?? s.player_name ?? s.player}</td>
+                      {EDITABLE_FIELDS.map((k) => (
+                        <td key={k} className="py-2 pr-2">
+                          <StatNumber value={s[k]} onChange={(v) => updateCell("team1", i, k, v, false)} />
+                        </td>
+                      ))}
+                      <td className="py-2 pr-2"><Button onClick={() => saveRow(s)}>Save</Button></td>
+                    </tr>
+                  ))}
+                  {!rows.team1.length && <tr><td className="py-3 text-zinc-400" colSpan={EDITABLE_FIELDS.length + 2}>No players</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* TEAM 2 */}
+          <div className="rounded-xl border border-white/10">
+            <div className="px-3 py-2 font-semibold bg-white/5">{rows.team2Name}</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-zinc-300">
+                  <tr>
+                    <th className="py-2 pr-2">Player</th>
+                    {EDITABLE_FIELDS.map((k) => <th key={k} className="py-2 pr-2">{k.toUpperCase()}</th>)}
+                    <th className="py-2 pr-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.team2.map((s, i) => (
+                    <tr key={`${s._player?.id ?? s.player}-${i}`} className="border-t border-white/10">
+                      <td className="py-2 pr-2">{s._player?.nickname ?? s.player_name ?? s.player}</td>
+                      {EDITABLE_FIELDS.map((k) => (
+                        <td key={k} className="py-2 pr-2">
+                          <StatNumber value={s[k]} onChange={(v) => updateCell("team2", i, k, v, true)} />
+                        </td>
+                      ))}
+                      <td className="py-2 pr-2"><Button onClick={() => saveRow(s)}>Save</Button></td>
+                    </tr>
+                  ))}
+                  {!rows.team2.length && <tr><td className="py-3 text-zinc-400" colSpan={EDITABLE_FIELDS.length + 2}>No players</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {msg && <Note>{msg}</Note>}
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -250,18 +513,6 @@ export default function AdminPage() {
   const [budget, setBudget] = useState("1000000");
   const [slots, setSlots] = useState("5");
   const [marketMsg, setMarketMsg] = useState("");
-
-  // RECALC
-  const [scope, setScope] = useState("tournament");
-  const [scopeId, setScopeId] = useState("");
-  const [recalcMsg, setRecalcMsg] = useState("");
-
-  // HLTV
-  const [hltvUrl, setHltvUrl] = useState("");
-  const [hltvTid, setHltvTid] = useState("");
-  const [hltvT1, setHltvT1] = useState("");
-  const [hltvT2, setHltvT2] = useState("");
-  const [hltvMsg, setHltvMsg] = useState("");
 
   // TOURNAMENT (tab forms)
   const [tName, setTName] = useState("");
@@ -291,14 +542,22 @@ export default function AdminPage() {
   const [llLeague, setLlLeague] = useState("");
   const [llTournament, setLlTournament] = useState("");
 
-  // MATCH
+  // MATCH creation
   const [mTid, setMTid] = useState("");
   const [mTeam1, setMTeam1] = useState("");
   const [mTeam2, setMTeam2] = useState("");
   const [mStart, setMStart] = useState("");
   const [mBo, setMBo] = useState("3");
 
-  // ===== SEARCH FILTERS (до любых return) =====
+  // MATCHES LIST TAB
+  const [mlTournament, setMlTournament] = useState("");
+  const [mlQuery, setMlQuery] = useState("");
+  const [mlMatches, setMlMatches] = useState([]);
+  const [mlLoading, setMlLoading] = useState(false);
+  const [mlErr, setMlErr] = useState("");
+  const [openMatchId, setOpenMatchId] = useState(null);
+
+  // LISTS filters
   const [qT, setQT] = useState("");
   const [qTm, setQTm] = useState("");
   const [qP, setQP] = useState("");
@@ -306,30 +565,26 @@ export default function AdminPage() {
 
   const [msg, setMsg] = useState("");
 
-  // ======== MODALS state (LISTS → Add new) ========
+  // unused "add" modals
   const [showAddTournament, setShowAddTournament] = useState(false);
   const [showAddTeam, setShowAddTeam] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
   const [showAddLeague, setShowAddLeague] = useState(false);
 
-  // modal forms (separate от вкладок, чтобы не путать стейт)
   const [mTName, setMTName] = useState("");
   const [mTStart, setMTStart] = useState("");
   const [mTEnd, setMTEnd] = useState("");
-
   const [mTeamName, setMTeamName] = useState("");
   const [mTeamRank, setMTeamRank] = useState("");
-
   const [mPlayerNick, setMPlayerNick] = useState("");
   const [mPlayerTeam, setMPlayerTeam] = useState("");
-
   const [mLeagueName, setMLeagueName] = useState("");
   const [mLeagueTid, setMLeagueTid] = useState("");
   const [mLeagueBudget, setMLeagueBudget] = useState("1000000");
   const [mLeagueBadges, setMLeagueBadges] = useState("0");
   const [mLeagueLock, setMLeagueLock] = useState("soft");
 
-  // guard + initial fetch
+  /* ===== auth + initial fetch ===== */
   useEffect(() => {
     if (!getToken()) { nav("/"); return; }
     apiGet("/auth/me")
@@ -351,11 +606,9 @@ export default function AdminPage() {
     setTournaments(ts); setTeams(tm); setPlayers(ps); setLeagues(ls);
   }
 
-  // options
+  // Options
   const tOpts = useMemo(() => [{ value: "", label: "— choose tournament —" }, ...tournaments.map(t => ({ value: String(t.id), label: t.name }))], [tournaments]);
   const teamOpts = useMemo(() => [{ value: "", label: "— choose team —" }, ...teams.map(t => ({ value: String(t.id), label: t.name }))], [teams]);
-  const playerOpts = useMemo(() => [{ value: "", label: "— choose player —" }, ...players.map(p => ({ value: String(p.id), label: p.nickname }))], [players]);
-  const leagueOpts = useMemo(() => [{ value: "", label: "— choose league —" }, ...leagues.map(l => ({ value: String(l.id), label: l.name }))], [leagues]);
 
   const leaguesByT = useMemo(() => {
     const by = {};
@@ -363,25 +616,13 @@ export default function AdminPage() {
     return by;
   }, [leagues]);
 
-  // ===== FILTERED LISTS (вверху, до early return) =====
-  const filteredTournaments = useMemo(
-    () => tournaments.filter(t => (t.name || "").toLowerCase().includes(qT.toLowerCase())),
-    [tournaments, qT]
-  );
-  const filteredTeams = useMemo(
-    () => teams.filter(t => (t.name || "").toLowerCase().includes(qTm.toLowerCase())),
-    [teams, qTm]
-  );
-  const filteredPlayers = useMemo(
-    () => players.filter(p => (p.nickname || "").toLowerCase().includes(qP.toLowerCase())),
-    [players, qP]
-  );
-  const filteredLeagues = useMemo(
-    () => leagues.filter(l => (l.name || "").toLowerCase().includes(qL.toLowerCase())),
-    [leagues, qL]
-  );
+  // Filtered lists
+  const filteredTournaments = useMemo(() => tournaments.filter(t => (t.name || "").toLowerCase().includes(qT.toLowerCase())), [tournaments, qT]);
+  const filteredTeams = useMemo(() => teams.filter(t => (t.name || "").toLowerCase().includes(qTm.toLowerCase())), [teams, qTm]);
+  const filteredPlayers = useMemo(() => players.filter(p => (p.nickname || "").toLowerCase().includes(qP.toLowerCase())), [players, qP]);
+  const filteredLeagues = useMemo(() => leagues.filter(l => (l.name || "").toLowerCase().includes(qL.toLowerCase())), [leagues, qL]);
 
-  /* ===== MARKET ===== */
+  /* ===== Market ===== */
   async function generateMarket() {
     setMarketMsg("");
     if (!tid) return setMarketMsg("Choose tournament");
@@ -391,25 +632,7 @@ export default function AdminPage() {
     } catch (e) { setMarketMsg(String(e.message || e)); }
   }
 
-  /* ===== RECALC ===== */
-  async function runRecalc() {
-    setRecalcMsg("");
-    if (!scopeId) return setRecalcMsg("Enter ID");
-    try { await apiPost("/admin/recalculate", { scope, id: Number(scopeId) }); setRecalcMsg("Recalculated"); }
-    catch (e) { setRecalcMsg(String(e.message || e)); }
-  }
-
-  /* ===== HLTV ===== */
-  async function importHLTV() {
-    setHltvMsg("");
-    if (!hltvUrl || !hltvTid || !hltvT1 || !hltvT2) return setHltvMsg("Fill URL, tournament, team1, team2");
-    try {
-      await apiPost("/admin/hltv/import", { match_url: hltvUrl, tournament_id: Number(hltvTid), team1: hltvT1, team2: hltvT2 });
-      setHltvMsg("Imported from HLTV");
-    } catch (e) { setHltvMsg(String(e.message || e)); }
-  }
-
-  /* ===== CRUD (tab) ===== */
+  /* ===== CRUD ===== */
   async function createTournament() {
     setMsg(""); if (!tName) return setMsg("Tournament: name required");
     try { await apiPost("/tournaments/", { name: tName, start_date: tStart || null, end_date: tEnd || null }); setMsg("Tournament created"); setTName(""); setTStart(""); setTEnd(""); await refreshAll(); }
@@ -458,11 +681,48 @@ export default function AdminPage() {
     catch (e) { setMsg(String(e.message || e)); }
   }
 
-  /* ===== LISTS save/delete helpers ===== */
+  /* ===== LISTS save/delete ===== */
   async function saveRow(type, id, body) { await apiPatch(`/${type}/${id}/`, body); await refreshAll(); }
   async function removeRow(type, id, text) { if (!window.confirm(text || "Delete?")) return; await apiDelete(`/${type}/${id}/`); await refreshAll(); }
 
-  // ===== EARLY RETURN AFTER ALL HOOKS ABOVE =====
+  // ===== Matches loader =====
+  function extractTournamentId(m) {
+    if (m.tournament_id != null) return m.tournament_id;
+    if (typeof m.tournament === "number") return m.tournament;
+    if (m.tournament && typeof m.tournament === "object" && m.tournament.id != null) return m.tournament.id;
+    if (m.tournamentId != null) return m.tournamentId;
+    return null;
+  }
+
+  async function loadMatchesForTournament() {
+    setMlErr(""); setMlLoading(true);
+    try {
+      const endpoint = mlTournament ? `/matches?tournament=${mlTournament}` : `/matches`;
+      const list = await apiGet(endpoint, false);
+      const filtered = mlTournament
+        ? (list || []).filter((m) => String(extractTournamentId(m)) === String(mlTournament))
+        : (list || []);
+      filtered.sort((a, b) => new Date(a.start_time || 0) - new Date(b.start_time || 0));
+      setMlMatches(filtered);
+    } catch (e) {
+      setMlErr(String(e.message || e));
+    } finally { setMlLoading(false); }
+  }
+
+  useEffect(() => {
+    if (!mlTournament) { setMlMatches([]); return; }
+    loadMatchesForTournament();
+  }, [mlTournament]);
+
+  const mlFiltered = useMemo(() => {
+    if (!mlQuery) return mlMatches;
+    const q = mlQuery.toLowerCase();
+    return mlMatches.filter(m =>
+      (m.team1_name || "").toLowerCase().includes(q) ||
+      (m.team2_name || "").toLowerCase().includes(q)
+    );
+  }, [mlMatches, mlQuery]);
+
   if (!me) return <div className="min-h-screen bg-black text-white p-6">Loading…</div>;
 
   const tabBtn = (name) => (
@@ -470,48 +730,6 @@ export default function AdminPage() {
       {name.toUpperCase()}
     </button>
   );
-
-  /* ======== Modal submit handlers (LISTS Add) ======== */
-  async function submitAddTournament() {
-    try {
-      await apiPost("/tournaments/", { name: mTName, start_date: mTStart || null, end_date: mTEnd || null });
-      await refreshAll();
-      setShowAddTournament(false);
-      setMTName(""); setMTStart(""); setMTEnd("");
-    } catch (e) { alert(String(e.message || e)); }
-  }
-  async function submitAddTeam() {
-    try {
-      await apiPost("/teams/", { name: mTeamName, world_rank: mTeamRank ? Number(mTeamRank) : null });
-      await refreshAll();
-      setShowAddTeam(false);
-      setMTeamName(""); setMTeamRank("");
-    } catch (e) { alert(String(e.message || e)); }
-  }
-  async function submitAddPlayer() {
-    try {
-      if (!mPlayerNick || !mPlayerTeam) throw new Error("Nickname & Team required");
-      await apiPost("/players/", { nickname: mPlayerNick, team: Number(mPlayerTeam) });
-      await refreshAll();
-      setShowAddPlayer(false);
-      setMPlayerNick(""); setMPlayerTeam("");
-    } catch (e) { alert(String(e.message || e)); }
-  }
-  async function submitAddLeague() {
-    try {
-      if (!mLeagueName || !mLeagueTid) throw new Error("Name & Tournament required");
-      await apiPost("/leagues/", {
-        name: mLeagueName,
-        tournament: Number(mLeagueTid),
-        budget: Number(mLeagueBudget || 0),
-        max_badges: Number(mLeagueBadges || 0),
-        lock_policy: mLeagueLock || "soft"
-      });
-      await refreshAll();
-      setShowAddLeague(false);
-      setMLeagueName(""); setMLeagueTid(""); setMLeagueBudget("1000000"); setMLeagueBadges("0"); setMLeagueLock("soft");
-    } catch (e) { alert(String(e.message || e)); }
-  }
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -529,7 +747,7 @@ export default function AdminPage() {
         <h1 className="text-2xl font-bold">Admin Tools</h1>
 
         <div className="mt-4 flex gap-2 flex-wrap">
-          {["market", "recalc", "hltv", "lists", "tournament", "team", "player", "league"].map(tabBtn)}
+          {["market", "lists", "tournament", "team", "player", "league", "matches"].map(tabBtn)}
         </div>
 
         {/* MARKET */}
@@ -550,7 +768,7 @@ export default function AdminPage() {
               {tid ? (
                 <div className="space-y-2">
                   {(leaguesByT[String(tid)] || []).map((l) => (
-                    <div key={l.id} className="flex items-center justify-between rounded-xl bg-white/5 border border-white/10 px-3 py-2">
+                    <div key={l.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2 border border-white/10">
                       <span>{l.name}</span>
                       <span className="text-xs text-zinc-300">budget: {l.budget}</span>
                     </div>
@@ -564,52 +782,10 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* RECALC */}
-        {tab === "recalc" && (
-          <div className="mt-6 grid md:grid-cols-2 gap-6">
-            <Card title="Recalculate Fantasy Points">
-              <div className="grid gap-3">
-                <Select label="Scope" value={scope} onChange={setScope} options={[{ value: "tournament", label: "Tournament" }, { value: "map", label: "Map" }]} />
-                <Input label="ID" value={scopeId} onChange={setScopeId} placeholder="e.g. 1" />
-                <Button onClick={runRecalc}>Run</Button>
-                {recalcMsg && <Note>{recalcMsg}</Note>}
-              </div>
-            </Card>
-            <Card title="Notes">
-              <Note>• Tournament — пересчёт всех карт турнира. • Map — одной карты.</Note>
-            </Card>
-          </div>
-        )}
-
-        {/* HLTV */}
-        {tab === "hltv" && (
-          <div className="mt-6 grid md:grid-cols-2 gap-6">
-            <Card title="Import from HLTV (match URL)">
-              <div className="grid gap-3">
-                <Input label="Match URL" value={hltvUrl} onChange={setHltvUrl} placeholder="https://www.hltv.org/matches/..." />
-                <Select label="Tournament" value={hltvTid} onChange={setHltvTid} options={tOpts} />
-                <div className="grid grid-cols-2 gap-3">
-                  <Input label="Team 1" value={hltvT1} onChange={setHltvT1} />
-                  <Input label="Team 2" value={hltvT2} onChange={setHltvT2} />
-                </div>
-                <Button onClick={importHLTV}>Import</Button>
-                {hltvMsg && <Note>{hltvMsg}</Note>}
-              </div>
-            </Card>
-            <Card title="Notes">
-              <Note>Импорт создаёт Match, Map'ы и PlayerMapStats. После — вкладка RECALC.</Note>
-            </Card>
-          </div>
-        )}
-
         {/* LISTS */}
         {tab === "lists" && (
           <div className="mt-6 space-y-8">
-            {/* Tournaments */}
-            <Card
-              title="Tournaments"
-              action={<Button onClick={() => setShowAddTournament(true)}>Add</Button>}
-            >
+            <Card title="Tournaments">
               <div className="mb-3"><Input label="Search" value={qT} onChange={setQT} placeholder="name..." /></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -618,12 +794,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {filteredTournaments.map((t) => (
-                      <TournamentRow
-                        key={t.id}
-                        t={t}
-                        onSave={(id, body) => saveRow("tournaments", id, body)}
-                        onDelete={(id, text) => removeRow("tournaments", id, text)}
-                      />
+                      <TournamentRow key={t.id} t={t} onSave={(id, body) => saveRow("tournaments", id, body)} onDelete={(id, text) => removeRow("tournaments", id, text)} />
                     ))}
                     {filteredTournaments.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={5}>No tournaments</td></tr>}
                   </tbody>
@@ -631,11 +802,7 @@ export default function AdminPage() {
               </div>
             </Card>
 
-            {/* Teams */}
-            <Card
-              title="Teams"
-              action={<Button onClick={() => setShowAddTeam(true)}>Add</Button>}
-            >
+            <Card title="Teams">
               <div className="mb-3"><Input label="Search" value={qTm} onChange={setQTm} placeholder="name..." /></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -644,12 +811,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {filteredTeams.map((t) => (
-                      <TeamRow
-                        key={t.id}
-                        t={t}
-                        onSave={(id, body) => saveRow("teams", id, body)}
-                        onDelete={(id, text) => removeRow("teams", id, text)}
-                      />
+                      <TeamRow key={t.id} t={t} onSave={(id, body) => saveRow("teams", id, body)} onDelete={(id, text) => removeRow("teams", id, text)} />
                     ))}
                     {filteredTeams.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={4}>No teams</td></tr>}
                   </tbody>
@@ -657,11 +819,7 @@ export default function AdminPage() {
               </div>
             </Card>
 
-            {/* Players */}
-            <Card
-              title="Players"
-              action={<Button onClick={() => setShowAddPlayer(true)}>Add</Button>}
-            >
+            <Card title="Players">
               <div className="mb-3"><Input label="Search" value={qP} onChange={setQP} placeholder="nickname..." /></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -670,13 +828,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {filteredPlayers.map((p) => (
-                      <PlayerRow
-                        key={p.id}
-                        p={p}
-                        teams={teams}
-                        onSave={(id, body) => saveRow("players", id, body)}
-                        onDelete={(id, text) => removeRow("players", id, text)}
-                      />
+                      <PlayerRow key={p.id} p={p} teams={teams} onSave={(id, body) => saveRow("players", id, body)} onDelete={(id, text) => removeRow("players", id, text)} />
                     ))}
                     {filteredPlayers.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={4}>No players</td></tr>}
                   </tbody>
@@ -684,11 +836,7 @@ export default function AdminPage() {
               </div>
             </Card>
 
-            {/* Leagues */}
-            <Card
-              title="Leagues"
-              action={<Button onClick={() => setShowAddLeague(true)}>Add</Button>}
-            >
+            <Card title="Leagues">
               <div className="mb-3"><Input label="Search" value={qL} onChange={setQL} placeholder="name..." /></div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -697,13 +845,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody>
                     {filteredLeagues.map((l) => (
-                      <LeagueRow
-                        key={l.id}
-                        l={l}
-                        tournaments={tournaments}
-                        onSave={(id, body) => saveRow("leagues", id, body)}
-                        onDelete={(id, text) => removeRow("leagues", id, text)}
-                      />
+                      <LeagueRow key={l.id} l={l} tournaments={tournaments} onSave={(id, body) => saveRow("leagues", id, body)} onDelete={(id, text) => removeRow("leagues", id, text)} />
                     ))}
                     {filteredLeagues.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={7}>No leagues</td></tr>}
                   </tbody>
@@ -713,7 +855,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* TOURNAMENT (tab) */}
+        {/* TOURNAMENT */}
         {tab === "tournament" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create Tournament">
@@ -745,7 +887,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* TEAM (tab) */}
+        {/* TEAM */}
         {tab === "team" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create Team">
@@ -765,7 +907,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* PLAYER (tab) */}
+        {/* PLAYER */}
         {tab === "player" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create Player">
@@ -777,7 +919,7 @@ export default function AdminPage() {
             </Card>
             <Card title="Link Player → Team">
               <div className="grid gap-3">
-                <Select label="Player" value={lpPlayer} onChange={setLpPlayer} options={playerOpts} />
+                <Select label="Player" value={lpPlayer} onChange={setLpPlayer} options={players.map(p=>({value:String(p.id),label:p.nickname}))} />
                 <Select label="Team" value={lpTeam} onChange={setLpTeam} options={teamOpts} />
                 <Button onClick={linkPlayerToTeam}>Link</Button>
               </div>
@@ -785,7 +927,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* LEAGUE (tab) */}
+        {/* LEAGUE */}
         {tab === "league" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create League">
@@ -802,7 +944,7 @@ export default function AdminPage() {
             </Card>
             <Card title="Link League → Tournament">
               <div className="grid gap-3">
-                <Select label="League" value={llLeague} onChange={setLlLeague} options={leagueOpts} />
+                <Select label="League" value={llLeague} onChange={setLlLeague} options={leagues.map(l=>({value:String(l.id),label:l.name}))} />
                 <Select label="Tournament" value={llTournament} onChange={setLlTournament} options={tOpts} />
                 <Button onClick={linkLeagueToTournament}>Link</Button>
               </div>
@@ -810,69 +952,54 @@ export default function AdminPage() {
           </div>
         )}
 
-        {(msg || marketMsg || recalcMsg || hltvMsg) && <div className="mt-4">
-          <Note>{msg || marketMsg || recalcMsg || hltvMsg}</Note>
-        </div>}
+        {/* MATCHES */}
+        {tab === "matches" && (
+          <div className="mt-6 grid gap-6">
+            <Card title="Matches by Tournament" action={<Button onClick={loadMatchesForTournament}>Refresh</Button>}>
+              <div className="grid md:grid-cols-2 gap-3">
+                <Select label="Tournament" value={mlTournament} onChange={setMlTournament} options={tOpts} />
+                <Input label="Search (team names)" value={mlQuery} onChange={setMlQuery} placeholder="NaVi, Vitality, etc." />
+              </div>
+              <div className="mt-4">
+                {mlErr && <Note className="text-red-400">{mlErr}</Note>}
+                {!mlErr && mlTournament && mlLoading && <Note>Loading matches…</Note>}
+                {!mlErr && mlTournament && !mlLoading && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-left text-zinc-300">
+                        <tr>
+                          <th className="py-2 pr-2">ID</th>
+                          <th className="py-2 pr-2">Team 1</th>
+                          <th className="py-2 pr-2">Team 2</th>
+                          <th className="py-2 pr-2">Start</th>
+                          <th className="py-2 pr-2">BO</th>
+                          <th className="py-2 pr-2">Open</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mlFiltered.map((m) => (
+                          <tr key={m.id} className="border-t border-white/10">
+                            <td className="py-2 pr-2">{m.id}</td>
+                            <td className="py-2 pr-2">{m.team1_name}</td>
+                            <td className="py-2 pr-2">{m.team2_name}</td>
+                            <td className="py-2 pr-2">{m.start_time ? new Date(m.start_time).toLocaleString() : "—"}</td>
+                            <td className="py-2 pr-2">BO{m.bo}</td>
+                            <td className="py-2 pr-2"><Button onClick={() => setOpenMatchId(m.id)}>Open</Button></td>
+                          </tr>
+                        ))}
+                        {!mlFiltered.length && <tr><td className="py-3 text-zinc-400" colSpan={6}>No matches found.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {!mlTournament && <Note>Choose tournament to see matches.</Note>}
+              </div>
+            </Card>
+          </div>
+        )}
       </main>
 
-      {/* ===== Modals ===== */}
-      {showAddTournament && (
-        <Modal title="Add Tournament" onClose={() => setShowAddTournament(false)}>
-          <div className="grid gap-3">
-            <Input label="Name" value={mTName} onChange={setMTName} />
-            <Input label="Start date (YYYY-MM-DD)" value={mTStart} onChange={setMTStart} />
-            <Input label="End date (YYYY-MM-DD)" value={mTEnd} onChange={setMTEnd} />
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setShowAddTournament(false)}>Cancel</Button>
-              <Button onClick={submitAddTournament}>Create</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {showAddTeam && (
-        <Modal title="Add Team" onClose={() => setShowAddTeam(false)}>
-          <div className="grid gap-3">
-            <Input label="Name" value={mTeamName} onChange={setMTeamName} />
-            <Input label="World rank (optional)" value={mTeamRank} onChange={setMTeamRank} />
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setShowAddTeam(false)}>Cancel</Button>
-              <Button onClick={submitAddTeam}>Create</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {showAddPlayer && (
-        <Modal title="Add Player" onClose={() => setShowAddPlayer(false)}>
-          <div className="grid gap-3">
-            <Input label="Nickname" value={mPlayerNick} onChange={setMPlayerNick} />
-            <Select label="Team" value={mPlayerTeam} onChange={setMPlayerTeam} options={[{ value: "", label: "— choose team —" }, ...teams.map(t => ({ value: String(t.id), label: t.name }))]} />
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setShowAddPlayer(false)}>Cancel</Button>
-              <Button onClick={submitAddPlayer}>Create</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {showAddLeague && (
-        <Modal title="Add League" onClose={() => setShowAddLeague(false)}>
-          <div className="grid gap-3">
-            <Input label="Name" value={mLeagueName} onChange={setMLeagueName} />
-            <Select label="Tournament" value={mLeagueTid} onChange={setMLeagueTid} options={[{ value: "", label: "— choose tournament —" }, ...tournaments.map(t => ({ value: String(t.id), label: t.name }))]} />
-            <div className="grid grid-cols-2 gap-3">
-              <Input label="Budget" value={mLeagueBudget} onChange={setMLeagueBudget} />
-              <Input label="Max badges" value={mLeagueBadges} onChange={setMLeagueBadges} />
-            </div>
-            <Input label="Lock policy" value={mLeagueLock} onChange={setMLeagueLock} placeholder="soft / hard" />
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setShowAddLeague(false)}>Cancel</Button>
-              <Button onClick={submitAddLeague}>Create</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      {openMatchId != null && <MatchDetailsModal matchId={openMatchId} onClose={() => setOpenMatchId(null)} />}
     </div>
   );
 }

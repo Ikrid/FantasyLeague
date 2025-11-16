@@ -11,6 +11,7 @@ from .views import (
     DraftStateView, DraftBuyView, DraftSellView,
     RegisterView, MeView,
     PlayerSummaryView, TournamentTeamViewSet,
+    MatchPlayersView,  # ← добавили
 )
 
 router = DefaultRouter()
@@ -43,6 +44,9 @@ urlpatterns = [
 
     # player summary
     path('player-summary/<int:player_id>/', PlayerSummaryView.as_view()),
+
+    # матч-участники (игроки, реально игравшие)
+    path('match-players', MatchPlayersView.as_view()),  # ← добавили
 
     # аутентификация
     path('auth/login', TokenObtainPairView.as_view(), name='token_obtain_pair'),

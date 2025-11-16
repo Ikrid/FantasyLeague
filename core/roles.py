@@ -149,7 +149,7 @@ ROLES: Dict[str, RoleFn] = {
     "IGL": role_IGL,
     "CONSISTENT": role_CONSISTENT,
     "FINISHER": role_FINISHER,
-    "RIFLER": role_RIFLER,  # 11-я на будущее, можно не показывать в UI
+    "RIFLER": role_RIFLER,
 }
 
 def apply_role(role_code: str | None, comp: Components, stat: StatDict) -> Tuple[Components, Dict]:
