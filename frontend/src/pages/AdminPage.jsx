@@ -557,6 +557,11 @@ export default function AdminPage() {
   const [mlErr, setMlErr] = useState("");
   const [openMatchId, setOpenMatchId] = useState(null);
 
+  // HLTV Import
+  const [hltvInput, setHltvInput] = useState("");
+  const [hltvMsg, setHltvMsg] = useState("");
+  const [hltvLoading, setHltvLoading] = useState(false);
+
   // LISTS filters
   const [qT, setQT] = useState("");
   const [qTm, setQTm] = useState("");
@@ -681,6 +686,37 @@ export default function AdminPage() {
     catch (e) { setMsg(String(e.message || e)); }
   }
 
+  async function importHLTV() {
+    setHltvMsg("");
+    if (!hltvInput) {
+      setHltvMsg("Enter HLTV URL or ID");
+      return;
+    }
+    // Extract numeric ID from input (either raw ID or full URL)
+    const match = String(hltvInput).match(/(\d{3,})/);
+    if (!match) {
+      setHltvMsg("Could not parse HLTV tournament ID");
+      return;
+    }
+    const hltvId = Number(match[1]);
+    if (!hltvId || Number.isNaN(hltvId)) {
+      setHltvMsg("Invalid HLTV ID");
+      return;
+    }
+    try {
+      setHltvLoading(true);
+      const res = await apiPost("/hltv/import-tournament", { hltv_id: hltvId });
+      const tName = res?.tournament?.name || res?.tournament_name || "";
+      setHltvMsg(tName ? `Imported tournament: ${tName}` : "Import successful");
+      setHltvInput("");
+      await refreshAll();
+    } catch (e) {
+      setHltvMsg(String(e.message || e));
+    } finally {
+      setHltvLoading(false);
+    }
+  }
+
   /* ===== LISTS save/delete ===== */
   async function saveRow(type, id, body) { await apiPatch(`/${type}/${id}/`, body); await refreshAll(); }
   async function removeRow(type, id, text) { if (!window.confirm(text || "Delete?")) return; await apiDelete(`/${type}/${id}/`); await refreshAll(); }
@@ -747,7 +783,7 @@ export default function AdminPage() {
         <h1 className="text-2xl font-bold">Admin Tools</h1>
 
         <div className="mt-4 flex gap-2 flex-wrap">
-          {["market", "lists", "tournament", "team", "player", "league", "matches"].map(tabBtn)}
+          {["market", "lists", "tournament", "team", "player", "league", "matches", "hltv"].map(tabBtn)}
         </div>
 
         {/* MARKET */}
@@ -994,6 +1030,30 @@ export default function AdminPage() {
                 )}
                 {!mlTournament && <Note>Choose tournament to see matches.</Note>}
               </div>
+            </Card>
+          </div>
+        )}
+
+        {/* HLTV IMPORT */}
+        {tab === "hltv" && (
+          <div className="mt-6 grid lg:grid-cols-2 gap-6">
+            <Card title="Import Tournament from HLTV">
+              <div className="grid gap-3">
+                <Input
+                  label="HLTV URL or Tournament ID"
+                  value={hltvInput}
+                  onChange={setHltvInput}
+                  placeholder="https://www.hltv.org/events/6990/... or 6990"
+                />
+                <Button onClick={importHLTV} disabled={hltvLoading}>
+                  {hltvLoading ? "Importing…" : "Import tournament"}
+                </Button>
+                {hltvMsg && <Note>{hltvMsg}</Note>}
+              </div>
+            </Card>
+            <Card title="What this does">
+              <Note>Uses your HLTV scrapers on backend to import tournament, teams and players.</Note>
+              <Note>Links teams to the tournament and creates a league: "Main league of &lt;Tournament&gt;".</Note>
             </Card>
           </div>
         )}

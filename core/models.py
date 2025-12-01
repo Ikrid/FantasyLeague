@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from datetime import date
 
 
 class Team(models.Model):
@@ -22,6 +23,9 @@ class Tournament(models.Model):
     name = models.CharField(max_length=200, unique=True)
     start_date = models.DateField(null=True, blank=True)
     end_date = models.DateField(null=True, blank=True)
+
+    def is_finished(self):
+        return bool(self.end_date and self.end_date < date.today())
 
     def __str__(self):
         return self.name
@@ -129,6 +133,38 @@ class PlayerPrice(models.Model):
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE)
     player = models.ForeignKey(Player, on_delete=models.CASCADE)
     price = models.IntegerField(default=0)
-    source = models.CharField(max_length=64, default="calc")
+    source = models.CharField(max_length=16, default="AUTO")
     calc_meta = models.JSONField(default=dict)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.player.nickname} @ {self.tournament.name}: {self.price}"
+
+class PlayerHLTVStats(models.Model):
+    player = models.OneToOneField(Player, on_delete=models.CASCADE, related_name="hltv_stats")
+
+    # --- Main Performance ---
+    rating2 = models.FloatField(default=0.0)                 # "Rating 2.0"
+    kills_per_round = models.FloatField(default=0.0)         # "Kills per round"
+    adr = models.FloatField(default=0.0)                     # "Damage per round"
+
+    # --- Entry / Opening ---
+    opening_kills_per_round = models.FloatField(default=0.0) # "Opening kills per round"
+    opening_deaths_per_round = models.FloatField(default=0.0)# "Opening deaths per round"
+    win_after_opening = models.FloatField(default=0.0)       # "Win% after opening kill"
+
+    # --- Skill / Impact ---
+    multikill_rounds_pct = models.FloatField(default=0.0)    # "Rounds with a multi-kill"
+    clutch_points_per_round = models.FloatField(default=0.0) # "Clutch points per round"
+
+    # --- Role Identification ---
+    sniper_kills_per_round = models.FloatField(default=0.0)  # "Sniper kills per round"
+
+    # --- Utility / Support ---
+    utility_damage_per_round = models.FloatField(default=0.0) # "Utility damage per round"
+    flash_assists_per_round = models.FloatField(default=0.0)  # "Flash assists per round"
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"HLTV Stats for {self.player.nickname}"

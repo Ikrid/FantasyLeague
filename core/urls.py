@@ -11,7 +11,7 @@ from .views import (
     DraftStateView, DraftBuyView, DraftSellView,
     RegisterView, MeView,
     PlayerSummaryView, TournamentTeamViewSet,
-    MatchPlayersView,  # ← добавили
+    MatchPlayersView, HLTVImportView,  # ← добавили
 )
 
 router = DefaultRouter()
@@ -53,4 +53,6 @@ urlpatterns = [
     path('auth/refresh', TokenRefreshView.as_view(), name='token_refresh'),
     path('auth/register', RegisterView.as_view(), name='auth-register'),
     path('auth/me', MeView.as_view(), name='auth-me'),
+    path('hltv/import-tournament', HLTVImportView.as_view()),
+
 ]

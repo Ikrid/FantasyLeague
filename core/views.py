@@ -1,55 +1,50 @@
-﻿from rest_framework import viewsets, generics
+﻿from rest_framework import viewsets, generics, status
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.db.models import Sum
+import re
+
+from .hltv_tournament_scraper import import_tournament_full
 from .models import (
-    Team, Player, Tournament, League, FantasyTeam, FantasyRoster,
-    Match, Map, PlayerMapStats, FantasyPoints, PlayerPrice, TournamentTeam
+    Team, Player, Tournament, League,
+    FantasyTeam, FantasyRoster, Match,
+    Map, PlayerMapStats, FantasyPoints,
+    PlayerPrice, TournamentTeam
 )
-from .serializers import (
-    TeamSerializer, PlayerSerializer, TournamentSerializer, LeagueSerializer,
-    FantasyTeamSerializer, FantasyRosterSerializer, MatchSerializer,
-    MapSerializer, PlayerMapStatsSerializer, FantasyPointsSerializer,
-    PlayerPriceSerializer, RegisterSerializer, TournamentTeamSerializer
-)
+from .serializers import *
 from .services import (
-    get_draft_state, handle_draft_buy, handle_draft_sell,
-    recalc_fantasy_points, generate_market_prices_for_tournament,
-    get_player_summary
+    recalc_fantasy_points,
+    generate_market_prices_for_tournament,
+    get_draft_state,
+    handle_draft_buy,
+    handle_draft_sell,
+    get_player_summary,
 )
 
 
-# ==== BASIC CRUD VIEWSETS ====
-
+# TEAM
 class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all().order_by("id")
     serializer_class = TeamSerializer
     permission_classes = [AllowAny]
 
 
+# PLAYER
 class PlayerViewSet(viewsets.ModelViewSet):
     queryset = Player.objects.select_related("team").all().order_by("id")
     serializer_class = PlayerSerializer
     permission_classes = [AllowAny]
 
-    def get_queryset(self):
-        qs = super().get_queryset()
-        team = self.request.query_params.get("team")
-        if team:
-            try:
-                qs = qs.filter(team_id=int(team))
-            except (TypeError, ValueError):
-                pass
-        return qs
 
-
+# TOURNAMENT
 class TournamentViewSet(viewsets.ModelViewSet):
     queryset = Tournament.objects.all().order_by("id")
     serializer_class = TournamentSerializer
     permission_classes = [AllowAny]
 
 
+# TOURNAMENT PARTICIPANTS
 class TournamentTeamViewSet(viewsets.ModelViewSet):
     queryset = TournamentTeam.objects.select_related("tournament", "team").all().order_by("id")
     serializer_class = TournamentTeamSerializer
@@ -60,18 +55,15 @@ class TournamentTeamViewSet(viewsets.ModelViewSet):
         t = self.request.query_params.get("tournament")
         team = self.request.query_params.get("team")
         if t:
-            try:
-                qs = qs.filter(tournament_id=int(t))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(tournament_id=int(t))
+            except: pass
         if team:
-            try:
-                qs = qs.filter(team_id=int(team))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(team_id=int(team))
+            except: pass
         return qs
 
 
+# LEAGUE
 class LeagueViewSet(viewsets.ModelViewSet):
     queryset = League.objects.select_related("tournament").all().order_by("id")
     serializer_class = LeagueSerializer
@@ -81,96 +73,86 @@ class LeagueViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         t = self.request.query_params.get("tournament")
         if t:
-            try:
-                qs = qs.filter(tournament_id=int(t))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(tournament_id=int(t))
+            except: pass
         return qs
 
 
+# FANTASY TEAM
 class FantasyTeamViewSet(viewsets.ModelViewSet):
     queryset = FantasyTeam.objects.select_related("league").all().order_by("id")
     serializer_class = FantasyTeamSerializer
     permission_classes = [AllowAny]
 
 
+# FANTASY ROSTER
 class FantasyRosterViewSet(viewsets.ModelViewSet):
     queryset = FantasyRoster.objects.select_related("player", "fantasy_team").all().order_by("id")
     serializer_class = FantasyRosterSerializer
     permission_classes = [AllowAny]
 
 
+# MATCH
 class MatchViewSet(viewsets.ModelViewSet):
     queryset = Match.objects.select_related("tournament", "team1", "team2").all().order_by("id")
     serializer_class = MatchSerializer
     permission_classes = [AllowAny]
 
-    # фильтрация по турниру: ?tournament=<id>
     def get_queryset(self):
         qs = super().get_queryset()
         t = self.request.query_params.get("tournament")
         if t:
-            try:
-                qs = qs.filter(tournament_id=int(t))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(tournament_id=int(t))
+            except: pass
         return qs
 
 
+# MAP
 class MapViewSet(viewsets.ModelViewSet):
     queryset = Map.objects.select_related("match").all().order_by("id")
     serializer_class = MapSerializer
     permission_classes = [AllowAny]
 
-    # фильтрация по матчу: ?match=<id>
     def get_queryset(self):
         qs = super().get_queryset()
         m = self.request.query_params.get("match")
         if m:
-            try:
-                qs = qs.filter(match_id=int(m))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(match_id=int(m))
+            except: pass
         return qs
 
 
+# PLAYER MAP STATS
 class PlayerMapStatsViewSet(viewsets.ModelViewSet):
     queryset = PlayerMapStats.objects.select_related("map", "player").all().order_by("id")
     serializer_class = PlayerMapStatsSerializer
     permission_classes = [AllowAny]
 
-    # удобные фильтры: ?map=, ?player=, ?match=
     def get_queryset(self):
         qs = super().get_queryset()
         map_id = self.request.query_params.get("map")
         player_id = self.request.query_params.get("player")
         match_id = self.request.query_params.get("match")
         if map_id:
-            try:
-                qs = qs.filter(map_id=int(map_id))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(map_id=int(map_id))
+            except: pass
         if player_id:
-            try:
-                qs = qs.filter(player_id=int(player_id))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(player_id=int(player_id))
+            except: pass
         if match_id:
-            try:
-                qs = qs.filter(map__match_id=int(match_id))
-            except (TypeError, ValueError):
-                pass
+            try: qs = qs.filter(map__match_id=int(match_id))
+            except: pass
         return qs
 
 
+# MARKET
 class MarketViewSet(viewsets.ModelViewSet):
     queryset = PlayerPrice.objects.select_related("player", "tournament", "player__team").all().order_by("-updated_at")
     serializer_class = PlayerPriceSerializer
     permission_classes = [AllowAny]
 
 
-# ==== ADMIN ====
-
+# ADMIN — RECALCULATE
 class AdminRecalcView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -183,6 +165,7 @@ class AdminRecalcView(APIView):
         return Response({"status": "ok"})
 
 
+# MARKET GENERATION
 class MarketGenerateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -196,23 +179,37 @@ class MarketGenerateView(APIView):
         return Response({"status": "market generated"})
 
 
-# ==== DRAFT ====
-
+# DRAFT — STATE
 class DraftStateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, league_id):
         user = request.user
         state = get_draft_state(user, league_id)
+
+        # ЛОГИКА АВТО-БЛОКИРОВКИ
+        league = League.objects.select_related("tournament").get(id=league_id)
+        t = league.tournament
+        t_finished = t.is_finished()
+
+        state["locked"] = t_finished
+        state["started"] = t_finished
+
         return Response(state)
 
 
+# DRAFT — BUY
 class DraftBuyView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
         league_id = request.data.get("league_id")
+
+        league = League.objects.select_related("tournament").get(id=league_id)
+        if league.tournament.is_finished():
+            return Response({"error": "Tournament is finished. Draft is locked."}, status=403)
+
         player_id = request.data.get("player_id")
         result = handle_draft_buy(user, league_id, player_id)
         if "error" in result:
@@ -220,12 +217,18 @@ class DraftBuyView(APIView):
         return Response(result)
 
 
+# DRAFT — SELL
 class DraftSellView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         user = request.user
         league_id = request.data.get("league_id")
+
+        league = League.objects.select_related("tournament").get(id=league_id)
+        if league.tournament.is_finished():
+            return Response({"error": "Tournament is finished. Draft is locked."}, status=403)
+
         player_id = request.data.get("player_id")
         result = handle_draft_sell(user, league_id, player_id)
         if "error" in result:
@@ -233,8 +236,7 @@ class DraftSellView(APIView):
         return Response(result)
 
 
-# ==== LEAGUE STANDINGS ====
-
+# STANDINGS
 class LeagueStandingsView(APIView):
     permission_classes = [AllowAny]
 
@@ -248,8 +250,7 @@ class LeagueStandingsView(APIView):
         return Response(list(standings))
 
 
-# ==== AUTH ====
-
+# AUTH
 class RegisterView(generics.CreateAPIView):
     queryset = FantasyTeam.objects.none()
     serializer_class = RegisterSerializer
@@ -271,8 +272,7 @@ class MeView(APIView):
         })
 
 
-# ==== PLAYER SUMMARY ====
-
+# PLAYER SUMMARY
 class PlayerSummaryView(APIView):
     permission_classes = [AllowAny]
 
@@ -282,26 +282,98 @@ class PlayerSummaryView(APIView):
         return Response(data)
 
 
-# ==== MATCH PLAYERS (игроки, реально игравшие в матче) ====
-
+# MATCH → PLAYERS
 class MatchPlayersView(APIView):
-    """
-    GET /api/match-players?match=<id>
-    Возвращает плоский список игроков (PlayerSerializer), которые встречаются
-    в PlayerMapStats на картах данного матча (объединение по всем картам).
-    """
     permission_classes = [AllowAny]
 
     def get(self, request):
         match_id = request.query_params.get("match")
         if not match_id:
             return Response({"detail": "Param 'match' is required"}, status=400)
+
         try:
             m = Match.objects.get(pk=int(match_id))
-        except (Match.DoesNotExist, ValueError, TypeError):
+        except:
             return Response({"detail": "Match not found"}, status=404)
 
         maps_qs = Map.objects.filter(match=m)
         players_qs = Player.objects.filter(playermapstats__map__in=maps_qs).distinct()
         data = PlayerSerializer(players_qs, many=True).data
         return Response(data)
+
+
+class HLTVImportView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        from .hltv_tournament_scraper import import_tournament_full
+
+        # Можно передать либо полный URL, либо только ID
+        hltv_url = request.data.get("hltv_url")
+        hltv_id = request.data.get("hltv_id")
+
+        if not hltv_url and not hltv_id:
+            return Response(
+                {"error": "Provide either 'hltv_url' or 'hltv_id'"},
+                status=400,
+            )
+
+        if not hltv_url and hltv_id:
+            # Строим URL по ID
+            try:
+                event_id = int(hltv_id)
+            except ValueError:
+                return Response({"error": "hltv_id must be integer"}, status=400)
+            hltv_url = f"https://www.hltv.org/events/{event_id}/_/"
+
+        print(f"[IMPORT] Importing tournament from: {hltv_url}")
+
+        # 1. Импортируем турнир, команды и игроков
+        try:
+            result = import_tournament_full(hltv_url)
+        except Exception as e:
+            print("Import failed:", repr(e))
+            return Response(
+                {"error": "Import failed", "details": str(e)},
+                status=500,
+            )
+
+        # import_tournament_full может вернуть dict (новый вариант)
+        # или объект Tournament (старый вариант, когда ты вызывал из консоли).
+        if isinstance(result, dict):
+            tournament_id = result.get("tournament")
+            league_id = result.get("league_created")
+            base_payload = result.copy()
+        else:
+            tournament_id = getattr(result, "id", None)
+            league_id = None
+            base_payload = {
+                "status": "ok",
+                "tournament": tournament_id,
+            }
+
+        if not tournament_id:
+            return Response(
+                {"error": "Import completed but tournament_id is missing"},
+                status=500,
+            )
+
+        # 2. Автоматически генерируем маркет для этого турнира.
+        #    Используем те же дефолты, что и MarketGenerateView (1_000_000, 5).
+        try:
+            generate_market_prices_for_tournament(
+                int(tournament_id),
+                budget=1_000_000,
+                slots=5,
+            )
+            base_payload["market_created"] = True
+        except Exception as e:
+            # Турнир импортировался, но маркет не создался
+            base_payload["market_created"] = False
+            base_payload["market_error"] = str(e)
+
+        base_payload["tournament"] = tournament_id
+        if league_id is not None:
+            base_payload["league"] = league_id
+
+        return Response(base_payload)

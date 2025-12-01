@@ -287,17 +287,25 @@ function Landing() {
     <div className="min-h-screen bg-black text-white">
       <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to="/" className="text-lg font-semibold tracking-wide">Fantasy CS2</Link>
-          <nav className="flex items-center gap-3">
-            {token ? (
-              <>
-                <span className="text-sm text-zinc-300">{username || "Signed in"}</span>
-                <Button variant="ghost" onClick={logout}>Logout</Button>
-              </>
-            ) : (
-              <Button onClick={() => setLoginOpen(true)}>Login</Button>
-            )}
-          </nav>
+          <Link to="/" className="text-lg font-semibold tracking-wide">Fantasy CS2</Link><nav className="flex items-center gap-3">
+  {token && (
+    <Link
+      to="/admin-tools"
+      className="text-sm text-zinc-300 hover:text-white px-3 py-1.5 border border-white/10 rounded-xl"
+    >
+      Admin Tools
+    </Link>
+  )}
+
+  {token ? (
+    <>
+      <span className="text-sm text-zinc-300">{username || "Signed in"}</span>
+      <Button variant="ghost" onClick={logout}>Logout</Button>
+    </>
+  ) : (
+    <Button onClick={() => setLoginOpen(true)}>Login</Button>
+  )}
+</nav>
         </div>
       </header>
 
