@@ -9,7 +9,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from django.db import transaction
+from django.db import transaction  # можно оставить, даже если не используем
 
 from .models import Player, Team, Tournament, PlayerHLTVStats, TournamentTeam, League
 from .hltv_player_scraper import HLTVPlayerScraper
@@ -24,7 +24,7 @@ def _extract_id_from_href(href: str, kind: str):
     Примеры:
       /player/15631/kscerato   -> 15631
       /team/7441/eclot         -> 7441
-      /events/8847/tipsport... -> 8847
+      /events/8847/tipsport.   -> 8847
     """
     pattern = rf"/{kind}/(\d+)"
     m = re.search(pattern, href)
@@ -100,12 +100,12 @@ class HLTVTournamentScraper:
 
         <div class="teams-attending grid">
           <div class="col standard-box team-box supports-hover" has-lineup="">
-            ...
+            .
             <div class="lineup-box hidden">
-              <a href="/player/...">...</a> x5
+              <a href="/player/.">.</a> x5
             </div>
           </div>
-          ...
+          .
         </div>
 
         Возвращаем список:
@@ -116,10 +116,10 @@ class HLTVTournamentScraper:
             "url": "https://www.hltv.org/team/10577/sinners",
             "players": [
               {"nickname": "beastik", "stats_url": "https://www.hltv.org/stats/players/11199/beastik"},
-              ...
+              .
             ]
           },
-          ...
+          .
         ]
         """
         soup = BeautifulSoup(html, "html.parser")
@@ -146,7 +146,8 @@ class HLTVTournamentScraper:
             # название команды — внутри .text или просто text линка
             name_el = team_link.select_one(".text") or team_link
             raw_name = name_el.get_text(strip=True)
-            team_name = raw_name.split("#", 1)[0].strip()  # на всякий случай отрезаем ранги типа "#48"
+            # отрезаем ранги типа "#48"
+            team_name = raw_name.split("#", 1)[0].strip()
 
             # --- игроки (ровно 5 из lineup-box) ---
             lineup_box = box.select_one(".lineup-box")
@@ -261,7 +262,7 @@ class HLTVTournamentScraper:
     # ПУБЛИЧНЫЙ МЕТОД: СКРАП ТУРНИРА
     # ----------------------------------------------------------
 
-    @transaction.atomic
+    # ВАРИАНТ 1: БЕЗ transaction.atomic
     def scrape_tournament(self, event_url: str) -> Tournament:
         """
         Главный метод:
@@ -327,7 +328,6 @@ class HLTVTournamentScraper:
             )
 
             for pdata in tdata["players"]:
-
                 nickname = pdata["nickname"]
                 stats_url = pdata["stats_url"]
 
@@ -386,6 +386,7 @@ def import_tournament_full(hltv_id_or_url):
     else:
         # Если это просто число — собираем URL в формате /events/<id>/_/
         event_url = f"{HLTV_BASE}/events/{raw}/_/"
+
     print(f"[IMPORT] Importing tournament from: {event_url}")
 
     # ВАЖНО: headless=False, как ты запускал вручную
@@ -416,7 +417,7 @@ def import_tournament_full(hltv_id_or_url):
             "budget": 1_000_000,
             "max_badges": 0,
             "lock_policy": "soft",
-        }
+        },
     )
 
     return {

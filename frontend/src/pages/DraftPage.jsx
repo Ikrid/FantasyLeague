@@ -466,61 +466,115 @@ export default function DraftPage() {
                 {!statLoading && !stat && (
                   <p className="text-sm text-zinc-300">No data.</p>
                 )}
-                {!statLoading && stat && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                    <InfoTile label="Maps" value={stat.maps} />
-                    <InfoTile
-                      label="Rounds"
-                      value={stat.rounds ?? "—"}
-                    />
-                    <InfoTile
-                      label="K/D"
-                      value={
-                        stat.kd === 999 ? "∞" : stat.kd ?? "—"
-                      }
-                    />
-                    <InfoTile
-                      label="HS%"
-                      value={
-                        stat.hs_pct != null
-                          ? `${stat.hs_pct}%`
-                          : "—"
-                      }
-                    />
-                    <InfoTile
-                      label="ADR"
-                      value={stat.adr ?? "—"}
-                    />
-                    <InfoTile
-                      label="Rating 2.0"
-                      value={stat.rating2 ?? "—"}
-                    />
-                    <InfoTile
-                      label="Opening rounds"
-                      value={
-                        stat.opening_pct != null
-                          ? `${stat.opening_pct}%`
-                          : "—"
-                      }
-                    />
-                    <InfoTile
-                      label="Multi-kill rounds"
-                      value={
-                        stat.multi_pct != null
-                          ? `${stat.multi_pct}%`
-                          : "—"
-                      }
-                    />
-                    <InfoTile
-                      label="Support rounds"
-                      value={
-                        stat.support_pct != null
-                          ? `${stat.support_pct}%`
-                          : "—"
-                      }
-                    />
-                  </div>
-                )}
+<div className="rounded-xl border border-white/10 bg-white/5 p-4">
+  <div className="flex items-center justify-between mb-2">
+    <h4 className="font-semibold">HLTV stats (last 3 months)</h4>
+    {statLoading && (
+      <span className="text-xs text-zinc-400">Loading…</span>
+    )}
+  </div>
+
+  {statErr && (
+    <p className="text-sm text-red-400">{statErr}</p>
+  )}
+
+  {!statLoading && !stat && !statErr && (
+    <p className="text-sm text-zinc-300">No data.</p>
+  )}
+
+  {!statLoading && stat && (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+      <InfoTile
+        label="Rating 3.0"
+        value={
+          stat.rating2 != null
+            ? Number(stat.rating2).toFixed(2)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Kills / round"
+        value={
+          stat.kills_per_round != null
+            ? Number(stat.kills_per_round).toFixed(2)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="ADR"
+        value={
+          stat.adr != null
+            ? Number(stat.adr).toFixed(1)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Opening kills / round"
+        value={
+          stat.opening_kills_per_round != null
+            ? Number(stat.opening_kills_per_round).toFixed(3)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Opening deaths / round"
+        value={
+          stat.opening_deaths_per_round != null
+            ? Number(stat.opening_deaths_per_round).toFixed(3)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Win% after opening kill"
+        value={
+          stat.win_after_opening != null
+            ? `${Number(stat.win_after_opening).toFixed(1)}%`
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Multi-kill rounds"
+        value={
+          stat.multikill_rounds_pct != null
+            ? `${Number(stat.multikill_rounds_pct).toFixed(1)}%`
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Clutch points / round"
+        value={
+          stat.clutch_points_per_round != null
+            ? Number(stat.clutch_points_per_round).toFixed(3)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Sniper kills / round"
+        value={
+          stat.sniper_kills_per_round != null
+            ? Number(stat.sniper_kills_per_round).toFixed(3)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Utility dmg / round"
+        value={
+          stat.utility_damage_per_round != null
+            ? Number(stat.utility_damage_per_round).toFixed(1)
+            : "—"
+        }
+      />
+      <InfoTile
+        label="Flash assists / round"
+        value={
+          stat.flash_assists_per_round != null
+            ? Number(stat.flash_assists_per_round).toFixed(3)
+            : "—"
+        }
+      />
+    </div>
+  )}
+</div>
               </div>
             </>
           )}

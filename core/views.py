@@ -10,7 +10,7 @@ from .models import (
     Team, Player, Tournament, League,
     FantasyTeam, FantasyRoster, Match,
     Map, PlayerMapStats, FantasyPoints,
-    PlayerPrice, TournamentTeam
+    PlayerPrice, TournamentTeam, PlayerHLTVStats
 )
 from .serializers import *
 from .services import (
@@ -277,8 +277,28 @@ class PlayerSummaryView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, player_id):
-        tournament_id = self.request.query_params.get("tournament")
-        data = get_player_summary(player_id, tournament_id)
+        tournament_id = request.query_params.get("tournament")
+
+        # 1. Базовые данные, как и раньше
+        data = get_player_summary(player_id, tournament_id) or {}
+
+        # 2. Подмешиваем HLTV-статы, если есть
+        hltv = PlayerHLTVStats.objects.filter(player_id=player_id).first()
+        if hltv:
+            data.update({
+                "rating2": hltv.rating2,
+                "kills_per_round": hltv.kills_per_round,
+                "adr": hltv.adr,
+                "opening_kills_per_round": hltv.opening_kills_per_round,
+                "opening_deaths_per_round": hltv.opening_deaths_per_round,
+                "win_after_opening": hltv.win_after_opening,
+                "multikill_rounds_pct": hltv.multikill_rounds_pct,
+                "clutch_points_per_round": hltv.clutch_points_per_round,
+                "sniper_kills_per_round": hltv.sniper_kills_per_round,
+                "utility_damage_per_round": hltv.utility_damage_per_round,
+                "flash_assists_per_round": hltv.flash_assists_per_round,
+            })
+
         return Response(data)
 
 
@@ -305,75 +325,79 @@ class MatchPlayersView(APIView):
 class HLTVImportView(APIView):
     permission_classes = [IsAdminUser]
 
-    def post(self, request):
-        from .hltv_tournament_scraper import import_tournament_full
+    def post(self, request, *args, **kwargs):
+        """
+        Принимаем ИЛИ URL, ИЛИ id турнира:
+        - frontend может прислать hltvId, hltv_id, hltv или url
+        - если это URL, просто прокидываем его дальше как есть
+        - если это число — тоже передаём строкой (как раньше)
 
-        # Можно передать либо полный URL, либо только ID
-        hltv_url = request.data.get("hltv_url")
-        hltv_id = request.data.get("hltv_id")
+        Дополнительно:
+        - можно прислать budget и slots (опционально), чтобы сразу
+          сгенерировать рынок для только что импортированного турнира.
+        """
 
-        if not hltv_url and not hltv_id:
+        raw = (
+                request.data.get("hltvId")
+                or request.data.get("hltv_id")
+                or request.data.get("hltv")
+                or request.data.get("url")
+        )
+
+        if not raw:
             return Response(
-                {"error": "Provide either 'hltv_url' or 'hltv_id'"},
-                status=400,
+                {"detail": "hltvId (или url) is required"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not hltv_url and hltv_id:
-            # Строим URL по ID
-            try:
-                event_id = int(hltv_id)
-            except ValueError:
-                return Response({"error": "hltv_id must be integer"}, status=400)
-            hltv_url = f"https://www.hltv.org/events/{event_id}/_/"
+        value = str(raw).strip()
+        event_arg = value  # не трогаем, скрапер ждёт строку
 
-        print(f"[IMPORT] Importing tournament from: {hltv_url}")
-
-        # 1. Импортируем турнир, команды и игроков
+        # Параметры для генерации рынка (как в MarketGenerateView)
         try:
-            result = import_tournament_full(hltv_url)
-        except Exception as e:
-            print("Import failed:", repr(e))
+            budget = int(request.data.get("budget", 1000000))
+            slots = int(request.data.get("slots", 5))
+        except (TypeError, ValueError):
             return Response(
-                {"error": "Import failed", "details": str(e)},
-                status=500,
+                {"detail": "budget и slots должны быть числами"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # import_tournament_full может вернуть dict (новый вариант)
-        # или объект Tournament (старый вариант, когда ты вызывал из консоли).
-        if isinstance(result, dict):
-            tournament_id = result.get("tournament")
-            league_id = result.get("league_created")
-            base_payload = result.copy()
-        else:
-            tournament_id = getattr(result, "id", None)
-            league_id = None
-            base_payload = {
-                "status": "ok",
-                "tournament": tournament_id,
-            }
-
-        if not tournament_id:
-            return Response(
-                {"error": "Import completed but tournament_id is missing"},
-                status=500,
-            )
-
-        # 2. Автоматически генерируем маркет для этого турнира.
-        #    Используем те же дефолты, что и MarketGenerateView (1_000_000, 5).
         try:
+            # 1. Импорт турнира с HLTV
+            result = import_tournament_full(event_arg)
+
+            # 2. Достаём ID турнира, чтобы сгенерировать рынок
+            #    Подстрой под то, что реально возвращает import_tournament_full
+            tournament_id = (
+                    result.get("tournament_id")
+                    or result.get("id")
+                    or (result.get("tournament") or {}).get("id")
+            )
+
+            if not tournament_id:
+                # если у тебя другое поле — просто замени логику выше
+                return Response(
+                    {"detail": "Tournament ID not found in import result"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            # 3. Генерация цен/рынка для турнира
             generate_market_prices_for_tournament(
                 int(tournament_id),
-                budget=1_000_000,
-                slots=5,
+                budget=budget,
+                slots=slots,
             )
-            base_payload["market_created"] = True
+
+            # Можно добавить пометку в ответ
+            result["market_status"] = "generated"
+
         except Exception as e:
-            # Турнир импортировался, но маркет не создался
-            base_payload["market_created"] = False
-            base_payload["market_error"] = str(e)
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {"detail": f"Import or market generation failed: {e.__class__.__name__}: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-        base_payload["tournament"] = tournament_id
-        if league_id is not None:
-            base_payload["league"] = league_id
-
-        return Response(base_payload)
+        return Response(result, status=status.HTTP_200_OK)

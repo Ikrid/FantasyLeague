@@ -168,3 +168,7 @@ class PlayerHLTVStats(models.Model):
 
     def __str__(self):
         return f"HLTV Stats for {self.player.nickname}"
+
+
+class TournamentMatch:
+    pass
