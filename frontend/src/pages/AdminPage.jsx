@@ -267,10 +267,13 @@ function MatchDetailsModal({ matchId, onClose }) {
       setMaps(ms || []);
 
       // Полные составы команд
-      const [p1, p2] = await Promise.all([
-        t1Id ? apiGet(`/players?team=${t1Id}`) : Promise.resolve([]),
-        t2Id ? apiGet(`/players?team=${t2Id}`) : Promise.resolve([]),
-      ]);
+const allPlayers = await apiGet(`/players`);
+
+const p1 = allPlayers.filter(p => p.team === t1Id);
+const p2 = allPlayers.filter(p => p.team === t2Id);
+
+setTeam1Players(p1);
+setTeam2Players(p2);
       setTeam1Players(p1 || []);
       setTeam2Players(p2 || []);
 
@@ -502,6 +505,8 @@ export default function AdminPage() {
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState("market");
 
+  const PAGE_SIZE = 10;
+
   // datasets
   const [tournaments, setTournaments] = useState([]);
   const [leagues, setLeagues] = useState([]);
@@ -568,7 +573,10 @@ export default function AdminPage() {
   const [qP, setQP] = useState("");
   const [qL, setQL] = useState("");
 
-  const [msg, setMsg] = useState("");
+  const [pageT, setPageT] = useState(1);
+  const [pageTm, setPageTm] = useState(1);
+  const [pageP, setPageP] = useState(1);
+  const [pageL, setPageL] = useState(1);
 
   // unused "add" modals
   const [showAddTournament, setShowAddTournament] = useState(false);
@@ -622,11 +630,67 @@ export default function AdminPage() {
   }, [leagues]);
 
   // Filtered lists
-  const filteredTournaments = useMemo(() => tournaments.filter(t => (t.name || "").toLowerCase().includes(qT.toLowerCase())), [tournaments, qT]);
-  const filteredTeams = useMemo(() => teams.filter(t => (t.name || "").toLowerCase().includes(qTm.toLowerCase())), [teams, qTm]);
-  const filteredPlayers = useMemo(() => players.filter(p => (p.nickname || "").toLowerCase().includes(qP.toLowerCase())), [players, qP]);
-  const filteredLeagues = useMemo(() => leagues.filter(l => (l.name || "").toLowerCase().includes(qL.toLowerCase())), [leagues, qL]);
+  const filteredTournaments = useMemo(
+    () => tournaments.filter((t) => (t.name || "").toLowerCase().includes(qT.toLowerCase())),
+    [tournaments, qT]
+  );
+  const filteredTeams = useMemo(
+    () => teams.filter((t) => (t.name || "").toLowerCase().includes(qTm.toLowerCase())),
+    [teams, qTm]
+  );
+  const filteredPlayers = useMemo(
+    () => players.filter((p) => (p.nickname || "").toLowerCase().includes(qP.toLowerCase())),
+    [players, qP]
+  );
+  const filteredLeagues = useMemo(
+    () => leagues.filter((l) => (l.name || "").toLowerCase().includes(qL.toLowerCase())),
+    [leagues, qL]
+  );
 
+  // Pagination totals
+  const totalTPages = Math.max(1, Math.ceil(filteredTournaments.length / PAGE_SIZE));
+  const totalTeamPages = Math.max(1, Math.ceil(filteredTeams.length / PAGE_SIZE));
+  const totalPlayerPages = Math.max(1, Math.ceil(filteredPlayers.length / PAGE_SIZE));
+  const totalLeaguePages = Math.max(1, Math.ceil(filteredLeagues.length / PAGE_SIZE));
+
+  // Reset page on query change
+  useEffect(() => { setPageT(1); }, [qT]);
+  useEffect(() => { setPageTm(1); }, [qTm]);
+  useEffect(() => { setPageP(1); }, [qP]);
+  useEffect(() => { setPageL(1); }, [qL]);
+
+  // Paginated slices
+  const paginatedTournaments = useMemo(
+    () => {
+      const start = (pageT - 1) * PAGE_SIZE;
+      return filteredTournaments.slice(start, start + PAGE_SIZE);
+    },
+    [filteredTournaments, pageT]
+  );
+
+  const paginatedTeams = useMemo(
+    () => {
+      const start = (pageTm - 1) * PAGE_SIZE;
+      return filteredTeams.slice(start, start + PAGE_SIZE);
+    },
+    [filteredTeams, pageTm]
+  );
+
+  const paginatedPlayers = useMemo(
+    () => {
+      const start = (pageP - 1) * PAGE_SIZE;
+      return filteredPlayers.slice(start, start + PAGE_SIZE);
+    },
+    [filteredPlayers, pageP]
+  );
+
+  const paginatedLeagues = useMemo(
+    () => {
+      const start = (pageL - 1) * PAGE_SIZE;
+      return filteredLeagues.slice(start, start + PAGE_SIZE);
+    },
+    [filteredLeagues, pageL]
+  );
   /* ===== Market ===== */
   async function generateMarket() {
     setMarketMsg("");
@@ -819,78 +883,246 @@ export default function AdminPage() {
         )}
 
         {/* LISTS */}
-        {tab === "lists" && (
+ {tab === "lists" && (
           <div className="mt-6 space-y-8">
             <Card title="Tournaments">
-              <div className="mb-3"><Input label="Search" value={qT} onChange={setQT} placeholder="name..." /></div>
+              <div className="mb-3">
+                <Input label="Search" value={qT} onChange={setQT} placeholder="name..." />
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-left text-zinc-300">
-                    <tr><th className="py-2 pr-2">ID</th><th className="py-2 pr-2">Name</th><th className="py-2 pr-2">Start</th><th className="py-2 pr-2">End</th><th className="py-2 pr-2">Actions</th></tr>
+                    <tr>
+                      <th className="py-2 pr-2">ID</th>
+                      <th className="py-2 pr-2">Name</th>
+                      <th className="py-2 pr-2">Start</th>
+                      <th className="py-2 pr-2">End</th>
+                      <th className="py-2 pr-2">Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {filteredTournaments.map((t) => (
-                      <TournamentRow key={t.id} t={t} onSave={(id, body) => saveRow("tournaments", id, body)} onDelete={(id, text) => removeRow("tournaments", id, text)} />
+                    {paginatedTournaments.map((t) => (
+                      <TournamentRow
+                        key={t.id}
+                        t={t}
+                        onSave={(id, body) => saveRow("tournaments", id, body)}
+                        onDelete={(id, text) => removeRow("tournaments", id, text)}
+                      />
                     ))}
-                    {filteredTournaments.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={5}>No tournaments</td></tr>}
+                    {filteredTournaments.length === 0 && (
+                      <tr>
+                        <td className="py-4 text-zinc-400" colSpan={5}>
+                          No tournaments
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              {totalTPages > 1 && (
+                <div className="mt-2 flex items-center justify-between text-xs text-zinc-300">
+                  <span>
+                    Page {pageT} of {totalTPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      disabled={pageT === 1}
+                      onClick={() => setPageT((p) => Math.max(1, p - 1))}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={pageT === totalTPages}
+                      onClick={() => setPageT((p) => Math.min(totalTPages, p + 1))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Card>
 
             <Card title="Teams">
-              <div className="mb-3"><Input label="Search" value={qTm} onChange={setQTm} placeholder="name..." /></div>
+              <div className="mb-3">
+                <Input label="Search" value={qTm} onChange={setQTm} placeholder="name..." />
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-left text-zinc-300">
-                    <tr><th className="py-2 pr-2">ID</th><th className="py-2 pr-2">Name</th><th className="py-2 pr-2">Rank</th><th className="py-2 pr-2">Actions</th></tr>
+                    <tr>
+                      <th className="py-2 pr-2">ID</th>
+                      <th className="py-2 pr-2">Name</th>
+                      <th className="py-2 pr-2">Rank</th>
+                      <th className="py-2 pr-2">Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {filteredTeams.map((t) => (
-                      <TeamRow key={t.id} t={t} onSave={(id, body) => saveRow("teams", id, body)} onDelete={(id, text) => removeRow("teams", id, text)} />
+                    {paginatedTeams.map((t) => (
+                      <TeamRow
+                        key={t.id}
+                        t={t}
+                        onSave={(id, body) => saveRow("teams", id, body)}
+                        onDelete={(id, text) => removeRow("teams", id, text)}
+                      />
                     ))}
-                    {filteredTeams.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={4}>No teams</td></tr>}
+                    {filteredTeams.length === 0 && (
+                      <tr>
+                        <td className="py-4 text-zinc-400" colSpan={4}>
+                          No teams
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              {totalTeamPages > 1 && (
+                <div className="mt-2 flex items-center justify-between text-xs text-zinc-300">
+                  <span>
+                    Page {pageTm} of {totalTeamPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      disabled={pageTm === 1}
+                      onClick={() => setPageTm((p) => Math.max(1, p - 1))}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={pageTm === totalTeamPages}
+                      onClick={() => setPageTm((p) => Math.min(totalTeamPages, p + 1))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Card>
 
             <Card title="Players">
-              <div className="mb-3"><Input label="Search" value={qP} onChange={setQP} placeholder="nickname..." /></div>
+              <div className="mb-3">
+                <Input label="Search" value={qP} onChange={setQP} placeholder="nickname..." />
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-left text-zinc-300">
-                    <tr><th className="py-2 pr-2">ID</th><th className="py-2 pr-2">Nickname</th><th className="py-2 pr-2">Team</th><th className="py-2 pr-2">Actions</th></tr>
+                    <tr>
+                      <th className="py-2 pr-2">ID</th>
+                      <th className="py-2 pr-2">Nickname</th>
+                      <th className="py-2 pr-2">Team</th>
+                      <th className="py-2 pr-2">Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {filteredPlayers.map((p) => (
-                      <PlayerRow key={p.id} p={p} teams={teams} onSave={(id, body) => saveRow("players", id, body)} onDelete={(id, text) => removeRow("players", id, text)} />
+                    {paginatedPlayers.map((p) => (
+                      <PlayerRow
+                        key={p.id}
+                        p={p}
+                        teams={teams}
+                        onSave={(id, body) => saveRow("players", id, body)}
+                        onDelete={(id, text) => removeRow("players", id, text)}
+                      />
                     ))}
-                    {filteredPlayers.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={4}>No players</td></tr>}
+                    {filteredPlayers.length === 0 && (
+                      <tr>
+                        <td className="py-4 text-zinc-400" colSpan={4}>
+                          No players
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              {totalPlayerPages > 1 && (
+                <div className="mt-2 flex items-center justify-between text-xs text-zinc-300">
+                  <span>
+                    Page {pageP} of {totalPlayerPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      disabled={pageP === 1}
+                      onClick={() => setPageP((p) => Math.max(1, p - 1))}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={pageP === totalPlayerPages}
+                      onClick={() => setPageP((p) => Math.min(totalPlayerPages, p + 1))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Card>
 
             <Card title="Leagues">
-              <div className="mb-3"><Input label="Search" value={qL} onChange={setQL} placeholder="name..." /></div>
+              <div className="mb-3">
+                <Input label="Search" value={qL} onChange={setQL} placeholder="name..." />
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-left text-zinc-300">
-                    <tr><th className="py-2 pr-2">ID</th><th className="py-2 pr-2">Name</th><th className="py-2 pr-2">Tournament</th><th className="py-2 pr-2">Budget</th><th className="py-2 pr-2">Badges</th><th className="py-2 pr-2">Lock</th><th className="py-2 pr-2">Actions</th></tr>
+                    <tr>
+                      <th className="py-2 pr-2">ID</th>
+                      <th className="py-2 pr-2">Name</th>
+                      <th className="py-2 pr-2">Tournament</th>
+                      <th className="py-2 pr-2">Budget</th>
+                      <th className="py-2 pr-2">Lock</th>
+                      <th className="py-2 pr-2">Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {filteredLeagues.map((l) => (
-                      <LeagueRow key={l.id} l={l} tournaments={tournaments} onSave={(id, body) => saveRow("leagues", id, body)} onDelete={(id, text) => removeRow("leagues", id, text)} />
+                    {paginatedLeagues.map((l) => (
+                      <LeagueRow
+                        key={l.id}
+                        l={l}
+                        tournaments={tournaments}
+                        onSave={(id, body) => saveRow("leagues", id, body)}
+                        onDelete={(id, text) => removeRow("leagues", id, text)}
+                      />
                     ))}
-                    {filteredLeagues.length === 0 && <tr><td className="py-4 text-zinc-400" colSpan={7}>No leagues</td></tr>}
+                    {filteredLeagues.length === 0 && (
+                      <tr>
+                        <td className="py-4 text-zinc-400" colSpan={6}>
+                          No leagues
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              {totalLeaguePages > 1 && (
+                <div className="mt-2 flex items-center justify-between text-xs text-zinc-300">
+                  <span>
+                    Page {pageL} of {totalLeaguePages}
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      disabled={pageL === 1}
+                      onClick={() => setPageL((p) => Math.max(1, p - 1))}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={pageL === totalLeaguePages}
+                      onClick={() => setPageL((p) => Math.min(totalLeaguePages, p + 1))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </Card>
           </div>
         )}
-
         {/* TOURNAMENT */}
         {tab === "tournament" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
