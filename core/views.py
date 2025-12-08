@@ -2,7 +2,7 @@
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.db.models import Sum
+from django.db.models import Sum, Count
 import re
 
 from .hltv_tournament_scraper import import_tournament_full
@@ -55,11 +55,15 @@ class TournamentTeamViewSet(viewsets.ModelViewSet):
         t = self.request.query_params.get("tournament")
         team = self.request.query_params.get("team")
         if t:
-            try: qs = qs.filter(tournament_id=int(t))
-            except: pass
+            try:
+                qs = qs.filter(tournament_id=int(t))
+            except:
+                pass
         if team:
-            try: qs = qs.filter(team_id=int(team))
-            except: pass
+            try:
+                qs = qs.filter(team_id=int(team))
+            except:
+                pass
         return qs
 
 
@@ -70,11 +74,15 @@ class LeagueViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = self.queryset.annotate(
+            participants_count=Count("fantasyteam")
+        )
         t = self.request.query_params.get("tournament")
         if t:
-            try: qs = qs.filter(tournament_id=int(t))
-            except: pass
+            try:
+                qs = qs.filter(tournament_id=int(t))
+            except (TypeError, ValueError):
+                pass
         return qs
 
 
@@ -102,8 +110,10 @@ class MatchViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         t = self.request.query_params.get("tournament")
         if t:
-            try: qs = qs.filter(tournament_id=int(t))
-            except: pass
+            try:
+                qs = qs.filter(tournament_id=int(t))
+            except:
+                pass
         return qs
 
 
@@ -117,8 +127,10 @@ class MapViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         m = self.request.query_params.get("match")
         if m:
-            try: qs = qs.filter(match_id=int(m))
-            except: pass
+            try:
+                qs = qs.filter(match_id=int(m))
+            except:
+                pass
         return qs
 
 
@@ -134,14 +146,20 @@ class PlayerMapStatsViewSet(viewsets.ModelViewSet):
         player_id = self.request.query_params.get("player")
         match_id = self.request.query_params.get("match")
         if map_id:
-            try: qs = qs.filter(map_id=int(map_id))
-            except: pass
+            try:
+                qs = qs.filter(map_id=int(map_id))
+            except:
+                pass
         if player_id:
-            try: qs = qs.filter(player_id=int(player_id))
-            except: pass
+            try:
+                qs = qs.filter(player_id=int(player_id))
+            except:
+                pass
         if match_id:
-            try: qs = qs.filter(map__match_id=int(match_id))
-            except: pass
+            try:
+                qs = qs.filter(map__match_id=int(match_id))
+            except:
+                pass
         return qs
 
 
@@ -338,10 +356,10 @@ class HLTVImportView(APIView):
         """
 
         raw = (
-                request.data.get("hltvId")
-                or request.data.get("hltv_id")
-                or request.data.get("hltv")
-                or request.data.get("url")
+            request.data.get("hltvId")
+            or request.data.get("hltv_id")
+            or request.data.get("hltv")
+            or request.data.get("url")
         )
 
         if not raw:
@@ -368,15 +386,13 @@ class HLTVImportView(APIView):
             result = import_tournament_full(event_arg)
 
             # 2. Достаём ID турнира, чтобы сгенерировать рынок
-            #    Подстрой под то, что реально возвращает import_tournament_full
             tournament_id = (
-                    result.get("tournament_id")
-                    or result.get("id")
-                    or (result.get("tournament") or {}).get("id")
+                result.get("tournament_id")
+                or result.get("id")
+                or (result.get("tournament") or {}).get("id")
             )
 
             if not tournament_id:
-                # если у тебя другое поле — просто замени логику выше
                 return Response(
                     {"detail": "Tournament ID not found in import result"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -389,7 +405,6 @@ class HLTVImportView(APIView):
                 slots=slots,
             )
 
-            # Можно добавить пометку в ответ
             result["market_status"] = "generated"
 
         except Exception as e:

@@ -220,6 +220,8 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         defaults={"user_name": user.username, "budget_left": league.budget},
     )
 
+    participants_count = FantasyTeam.objects.filter(league=league).count()
+
     # Текущий ростер
     roster_qs = (
         FantasyRoster.objects
@@ -303,6 +305,7 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         "tournament_id": league.tournament_id,
 
         "fantasy_team": {"id": ft.id, "budget_left": ft.budget_left},
+        "participants": participants_count,
         "started": False,                         # можно заменить реальной логикой старта турнира
         "limits": {"slots": 5, "max_per_team": 2},
         "team_counts": team_counts,

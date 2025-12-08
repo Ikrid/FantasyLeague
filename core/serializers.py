@@ -32,10 +32,20 @@ class TournamentTeamSerializer(serializers.ModelSerializer):
 
 class LeagueSerializer(serializers.ModelSerializer):
     tournament_name = serializers.CharField(source='tournament.name', read_only=True)
+    participants_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = League
-        fields = ["id", "name", "tournament", "tournament_name", "budget", "max_badges", "lock_policy"]
+        fields = [
+            "id",
+            "name",
+            "tournament",
+            "tournament_name",
+            "budget",
+            "max_badges",
+            "lock_policy",
+            "participants_count",
+        ]
 
 
 class FantasyTeamSerializer(serializers.ModelSerializer):
@@ -66,6 +76,7 @@ class MatchSerializer(serializers.ModelSerializer):
 
 class MapSerializer(serializers.ModelSerializer):
     match_str = serializers.CharField(source='match.__str__', read_only=True)
+
     class Meta:
         model = Map
         fields = ["id", "match", "match_str", "map_name", "map_index", "played_rounds"]

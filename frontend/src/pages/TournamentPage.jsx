@@ -51,18 +51,22 @@ export default function TournamentPage() {
             <p className="text-zinc-300">No leagues yet.</p>
           )}
 
-          {leagues.map((lg) => (
-            <div
-              key={lg.id}
-              className="rounded-xl border border-white/10 p-3 bg-white/5 cursor-pointer hover:bg-white/10 transition"
-              onClick={() => navigate(`/draft/${lg.id}`)}
-            >
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">{lg.name}</h3>
-                <span className="text-xs text-zinc-400">Budget: {lg.budget}</span>
-              </div>
-            </div>
-          ))}
+     {leagues.map((lg) => (
+  <div
+    key={lg.id}
+    className="rounded-xl border border-white/10 p-3 bg-white/5 cursor-pointer hover:bg-white/10 transition"
+    onClick={() => navigate(`/draft/${lg.id}`)}
+  >
+    <div className="flex items-center justify-between">
+      <h3 className="text-lg font-semibold">{lg.name}</h3>
+
+      {/* Вот здесь теперь количество игроков вместо бюджета */}
+      <span className="text-xs text-zinc-400">
+        Players: {lg.participants_count ?? 0}
+      </span>
+    </div>
+  </div>
+))}
         </div>
       )}
     </div>

@@ -17,12 +17,14 @@ async function apiPost(path, body) {
   if (!res.ok) throw new Error(data?.detail || data?.error || JSON.stringify(data));
   return data;
 }
+
 async function apiGetPublic(path) {
   const res = await fetch(`${BASE_URL}${path}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.detail || data?.error || `GET ${path}: ${res.status}`);
   return data;
 }
+
 function saveToken(token) { localStorage.setItem("access", token); }
 function getToken() { return localStorage.getItem("access"); }
 function clearToken() { localStorage.removeItem("access"); }
@@ -45,6 +47,7 @@ function Button({ children, onClick, type = "button", variant = "primary", class
     </button>
   );
 }
+
 function Input({ label, type = "text", value, onChange, placeholder, autoComplete }) {
   return (
     <label className="block space-y-1">
@@ -60,6 +63,7 @@ function Input({ label, type = "text", value, onChange, placeholder, autoComplet
     </label>
   );
 }
+
 function Modal({ open, onClose, title, children, footer }) {
   if (!open) return null;
   return (
@@ -77,12 +81,12 @@ function Modal({ open, onClose, title, children, footer }) {
   );
 }
 
-// === auth ===
+// === auth modal ===
 function LoginModal({ open, onClose, onLoggedIn }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function doLogin(e) {
     e?.preventDefault?.();
@@ -110,24 +114,37 @@ function LoginModal({ open, onClose, onLoggedIn }) {
         <div className="flex items-center justify-between">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <div className="space-x-2">
-            <Link to="/register" onClick={onClose} className="text-sm text-zinc-300 hover:text-white">Create account</Link>
+            <Link
+              to="/register"
+              onClick={onClose}
+              className="text-sm text-zinc-300 hover:text-white"
+            >
+              Create account
+            </Link>
             <Button onClick={doLogin}>{loading ? "Logging in…" : "Login"}</Button>
           </div>
         </div>
       }
     >
       <form className="space-y-3" onSubmit={doLogin}>
-        <Input label="Username" value={username} onChange={setUsername} autoComplete="username" />
-        <Input label="Password" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
+        <Input label="Username" value={username} onChange={setUsername} />
+        <Input label="Password" type="password" value={password} onChange={setPassword} />
         {err && <p className="text-sm text-red-400">{err}</p>}
       </form>
     </Modal>
   );
 }
 
+// === registration ===
 function RegisterPage() {
   const nav = useNavigate();
-  const [form, setForm] = useState({ username: "", email: "", password: "", first_name: "", last_name: "" });
+  const [form, setForm] = useState({
+    username: "",
+    email: "",
+    password: "",
+    first_name: "",
+    last_name: "",
+  });
   const [err, setErr] = useState("");
   const [ok, setOk] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -152,9 +169,10 @@ function RegisterPage() {
       <header className="sticky top-0 z-40 bg-black/70 backdrop-blur border-b border-white/10">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" className="text-lg font-semibold">Fantasy CS2</Link>
-          <Link to="/" className="text-sm text-zinc-300 hover:text-white">Back to tournaments</Link>
+          <Link to="/" className="text-sm text-zinc-300 hover:text-white">Back</Link>
         </div>
       </header>
+
       <main className="max-w-xl mx-auto px-4 py-10">
         <h1 className="text-3xl font-bold mb-6">Create your account</h1>
         <form onSubmit={submit} className="space-y-4">
@@ -166,7 +184,7 @@ function RegisterPage() {
           </div>
           <Input label="Password" type="password" value={form.password} onChange={(v) => setField("password", v)} />
           {err && <p className="text-sm text-red-400">{err}</p>}
-          {ok && <p className="text-sm text-green-400">Registration successful. Redirecting…</p>}
+          {ok && <p className="text-sm text-green-400">Registration successful</p>}
           <div className="flex items-center justify-end gap-3">
             <Link to="/" className="text-sm text-zinc-300 hover:text-white">Cancel</Link>
             <Button type="submit">{loading ? "Creating…" : "Create account"}</Button>
@@ -183,10 +201,12 @@ function fmtDate(iso) {
   const d = new Date(iso);
   return d.toLocaleString(undefined, { month: "short", day: "numeric" });
 }
+
 function statusOf(startISO, endISO) {
   const now = new Date();
   const start = startISO ? new Date(startISO) : null;
   const end = endISO ? new Date(endISO) : null;
+
   if (end && end < now) return "Finished";
   if (start && start > now) return "Upcoming";
   return "Open";
@@ -196,8 +216,8 @@ function TournamentsSection() {
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const token = getToken();
   const navigate = useNavigate();
+  const token = getToken();
 
   useEffect(() => {
     apiGetPublic("/tournaments")
@@ -208,40 +228,94 @@ function TournamentsSection() {
 
   function openTournament(t) {
     if (!token) {
-      alert("Login required – click Login top right");
+      alert("Login required");
       return;
     }
     navigate(`/tournament/${t.id}`);
   }
 
+  const statusOrder = { Finished: 0, Open: 1, Upcoming: 2 };
+
+  // === KEY PART: SORTING FIX ===
+  const visible = [...tournaments].sort((a, b) => {
+    const sa = statusOf(a.start_date, a.end_date);
+    const sb = statusOf(b.start_date, b.end_date);
+
+    if (sa !== sb) return statusOrder[sa] - statusOrder[sb];
+
+    const da = new Date(a.start_date || a.end_date || 0);
+    const db = new Date(b.start_date || b.end_date || 0);
+
+    if (sa === "Finished") {
+      // Finished → from OLDEST to newest
+      return da - db;
+    }
+
+    // Open / Upcoming → new first
+    return db - da;
+  });
+
   return (
     <section className="max-w-6xl mx-auto px-4 py-10">
-      <h2 className="text-4xl font-extrabold tracking-tight">TOURNAMENTS</h2>
+      <h2 className="text-4xl font-extrabold">TOURNAMENTS</h2>
 
-      {loading && <p className="text-zinc-300 mt-6">Loading tournaments…</p>}
+      {loading && <p className="text-zinc-400 mt-6">Loading…</p>}
       {err && <p className="text-red-400 mt-6">{err}</p>}
 
       {!loading && !err && (
         <div className="mt-6 flex flex-col gap-3">
-          {tournaments.map((t) => {
+          {visible.map((t) => {
             const st = statusOf(t.start_date, t.end_date);
             const dateLabel =
               t.start_date || t.end_date
                 ? `${fmtDate(t.start_date)}${t.end_date ? " – " + fmtDate(t.end_date) : ""}`
                 : "";
 
+            const isFinished = st === "Finished";
+            const isUpcoming = st === "Upcoming";
+
+            // compute badge text
+            let badgeText = st;
+
+            if (!isFinished) {
+              if (isUpcoming && t.start_date) {
+                const now = new Date();
+                const start = new Date(t.start_date);
+                const diff = Math.ceil((start - now) / (1000 * 60 * 60 * 24));
+                if (diff <= 0) badgeText = "Starts today";
+                else if (diff === 1) badgeText = "Starts in 1 day";
+                else badgeText = `Starts in ${diff} days`;
+              } else if (st === "Open") {
+                badgeText = "Ongoing";
+              }
+            }
+
+            const rowClass = isFinished
+              ? "flex items-center justify-between rounded-md bg-zinc-900 border border-white/5 px-3 py-2 text-xs opacity-70 cursor-pointer"
+              : "flex items-center justify-between rounded-xl bg-zinc-800 border border-white/10 px-4 py-3 text-sm md:text-base cursor-pointer hover:bg-zinc-700 transition shadow-sm";
+
+            const titleClass = isFinished
+              ? "text-[11px] md:text-xs font-medium text-zinc-200"
+              : "text-sm md:text-base font-semibold text-white";
+
+            const dateClass = isFinished
+              ? "text-[10px] text-zinc-500"
+              : "text-[11px] text-zinc-300";
+
             return (
               <div
                 key={t.id}
-                onClick={() => openTournament(t)}
-                className="rounded-xl border border-white/10 p-3 bg-white/5 cursor-pointer hover:bg-white/10 transition"
+                className={rowClass}
+                onClick={() => openTournament(t)} // Finished now clickable
               >
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">{t.name}</h3>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/10">{st}</span>
+                <div className="flex flex-col gap-0.5">
+                  {dateLabel && <span className={dateClass}>{dateLabel}</span>}
+                  <span className={titleClass}>{t.name}</span>
                 </div>
 
-                <p className="text-xs text-zinc-400 mt-1">{dateLabel}</p>
+                <span className="shrink-0 inline-block rounded-md bg-amber-400 px-3 py-1 text-[10px] md:text-xs font-semibold text-black">
+                  {badgeText}
+                </span>
               </div>
             );
           })}
@@ -251,38 +325,59 @@ function TournamentsSection() {
   );
 }
 
+// === FAQ ===
 function FAQSection() {
-  const items = [
-    { q: "What is this?", a: "A CS2 fantasy manager: you pick 5 players before the tournament starts and earn points based on their real match performances." },
-    { q: "How do I choose players?", a: "Open the tournament, press Enter — you’ll see 5 slots at the top and the player market below. No more than 2 players from the same team." },
-    { q: "When can’t I change my lineup?", a: "Once the tournament starts, your lineup is locked. Balance and points are calculated automatically." },
-  ];
   return (
     <section id="faq" className="border-t border-white/10 bg-black">
       <div className="max-w-6xl mx-auto px-4 py-12">
-        <h2 className="text-4xl font-extrabold">FAQ</h2>
+        <h2 className="text-4xl font-extrabold tracking-tight">FAQ</h2>
+
         <div className="mt-6 space-y-4">
-          {items.map((it, idx) => (
-            <div key={idx} className="rounded-xl border border-white/10 p-5 bg-white/5">
-              <h4 className="text-lg font-semibold">{it.q}</h4>
-              <p className="text-sm text-zinc-300 mt-1">{it.a}</p>
-            </div>
-          ))}
+
+          <div className="rounded-xl border border-white/10 p-5 bg-white/5">
+            <h4 className="text-lg font-semibold">What is this?</h4>
+            <p className="text-sm text-zinc-300 mt-1">
+              This is a CS2 Fantasy League platform where you select players before tournaments and compete for points.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-white/10 p-5 bg-white/5">
+            <h4 className="text-lg font-semibold">How do I play?</h4>
+            <p className="text-sm text-zinc-300 mt-1">
+              Pick 5 players within the budget. Your score is based on HLTV match statistics.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-white/10 p-5 bg-white/5">
+            <h4 className="text-lg font-semibold">Do I need an account?</h4>
+            <p className="text-sm text-zinc-300 mt-1">
+              Yes. You must log in to join leagues and create fantasy teams.
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-white/10 p-5 bg-white/5">
+            <h4 className="text-lg font-semibold">Are tournaments automatic?</h4>
+            <p className="text-sm text-zinc-300 mt-1">
+              Yes — tournaments are imported from HLTV along with teams, players and match stats.
+            </p>
+          </div>
+
         </div>
       </div>
     </section>
   );
 }
 
+
 function Landing() {
   const [loginOpen, setLoginOpen] = useState(false);
-  const [token, setToken] = useState(getToken());
+  const [token, setTokenState] = useState(getToken());
   const username = localStorage.getItem("username");
 
   function logout() {
     clearToken();
     localStorage.removeItem("username");
-    setToken(null);
+    setTokenState(null);
   }
 
   return (
@@ -290,19 +385,17 @@ function Landing() {
       <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" className="text-lg font-semibold tracking-wide">Fantasy CS2</Link>
+
           <nav className="flex items-center gap-3">
             {token && (
-              <Link
-                to="/admin-tools"
-                className="text-sm text-zinc-300 hover:text-white px-3 py-1.5 border border-white/10 rounded-xl"
-              >
+              <Link to="/admin-tools" className="text-sm text-zinc-300 hover:text-white px-3 py-1.5 border border-white/10 rounded-xl">
                 Admin Tools
               </Link>
             )}
 
             {token ? (
               <>
-                <span className="text-sm text-zinc-300">{username || "Signed in"}</span>
+                <span className="text-sm text-zinc-300">{username}</span>
                 <Button variant="ghost" onClick={logout}>Logout</Button>
               </>
             ) : (
@@ -317,7 +410,7 @@ function Landing() {
         <FAQSection />
       </main>
 
-      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onLoggedIn={() => setToken(getToken())} />
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onLoggedIn={() => setTokenState(getToken())} />
     </div>
   );
 }
