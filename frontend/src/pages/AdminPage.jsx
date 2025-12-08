@@ -267,13 +267,11 @@ function MatchDetailsModal({ matchId, onClose }) {
       setMaps(ms || []);
 
       // Полные составы команд
-const allPlayers = await apiGet(`/players`);
+      const allPlayers = await apiGet(`/players`);
 
-const p1 = allPlayers.filter(p => p.team === t1Id);
-const p2 = allPlayers.filter(p => p.team === t2Id);
+      const p1 = allPlayers.filter(p => p.team === t1Id);
+      const p2 = allPlayers.filter(p => p.team === t2Id);
 
-setTeam1Players(p1);
-setTeam2Players(p2);
       setTeam1Players(p1 || []);
       setTeam2Players(p2 || []);
 
@@ -512,6 +510,7 @@ export default function AdminPage() {
   const [leagues, setLeagues] = useState([]);
   const [teams, setTeams] = useState([]);
   const [players, setPlayers] = useState([]);
+  const [tournamentTeams, setTournamentTeams] = useState([]);
 
   // MARKET
   const [tid, setTid] = useState("");
@@ -610,13 +609,18 @@ export default function AdminPage() {
   }, []);
 
   async function refreshAll() {
-    const [ts, tm, ps, ls] = await Promise.all([
+    const [ts, tm, ps, ls, tts] = await Promise.all([
       apiGet("/tournaments", false),
       apiGet("/teams", false),
       apiGet("/players", false),
       apiGet("/leagues", false),
+      apiGet("/tournament-teams", false),
     ]);
-    setTournaments(ts); setTeams(tm); setPlayers(ps); setLeagues(ls);
+    setTournaments(ts);
+    setTeams(tm);
+    setPlayers(ps);
+    setLeagues(ls);
+    setTournamentTeams(tts);
   }
 
   // Options
@@ -628,6 +632,32 @@ export default function AdminPage() {
     for (const l of leagues) (by[String(l.tournament)] ||= []).push(l);
     return by;
   }, [leagues]);
+
+  const tournamentTeamsByTournament = useMemo(() => {
+    const by = {};
+    for (const tt of tournamentTeams || []) {
+      const tid = String(tt.tournament);
+      if (!by[tid]) by[tid] = [];
+      by[tid].push(Number(tt.team));
+    }
+    return by;
+  }, [tournamentTeams]);
+
+  const matchTeamOpts = useMemo(() => {
+    if (!mTid) return teamOpts;
+    const teamIds = tournamentTeamsByTournament[String(mTid)] || [];
+    const idSet = new Set(teamIds.map(Number));
+    const list = teams
+      .filter(t => idSet.has(Number(t.id)))
+      .map(t => ({ value: String(t.id), label: t.name }));
+    return [{ value: "", label: "— choose team —" }, ...list];
+  }, [mTid, tournamentTeamsByTournament, teams, teamOpts]);
+
+  // сбрасываем выбранные команды при смене турнира матча
+  useEffect(() => {
+    setMTeam1("");
+    setMTeam2("");
+  }, [mTid]);
 
   // Filtered lists
   const filteredTournaments = useMemo(
@@ -823,6 +853,8 @@ export default function AdminPage() {
     );
   }, [mlMatches, mlQuery]);
 
+  const [msg, setMsg] = useState("");
+
   if (!me) return <div className="min-h-screen bg-black text-white p-6">Loading…</div>;
 
   const tabBtn = (name) => (
@@ -883,7 +915,7 @@ export default function AdminPage() {
         )}
 
         {/* LISTS */}
- {tab === "lists" && (
+        {tab === "lists" && (
           <div className="mt-6 space-y-8">
             <Card title="Tournaments">
               <div className="mb-3">
@@ -1144,8 +1176,8 @@ export default function AdminPage() {
             <Card title="Create Match">
               <div className="grid gap-3">
                 <Select label="Tournament" value={mTid} onChange={setMTid} options={tOpts} />
-                <Select label="Team 1" value={mTeam1} onChange={setMTeam1} options={teamOpts} />
-                <Select label="Team 2" value={mTeam2} onChange={setMTeam2} options={teamOpts} />
+                <Select label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} />
+                <Select label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} />
                 <Input label="Start time (YYYY-MM-DDTHH:mm)" value={mStart} onChange={setMStart} />
                 <Input label="BO" value={mBo} onChange={setMBo} />
                 <Button onClick={createMatch}>Create Match</Button>

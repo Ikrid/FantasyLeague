@@ -13,10 +13,20 @@ async function apiGetPublic(path) {
 export default function TournamentPage() {
   const { tournamentId } = useParams();
   const navigate = useNavigate();
+
+  const [tournament, setTournament] = useState(null);
   const [leagues, setLeagues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // Load tournament info (to show its name)
+  useEffect(() => {
+    apiGetPublic(`/tournaments/${tournamentId}`)
+      .then(setTournament)
+      .catch((e) => setErr(String(e.message || e)));
+  }, [tournamentId]);
+
+  // Load leagues for this tournament
   useEffect(() => {
     apiGetPublic(`/leagues?tournament=${tournamentId}`)
       .then(setLeagues)
@@ -27,23 +37,29 @@ export default function TournamentPage() {
   return (
     <div className="min-h-screen bg-black text-white p-6">
       <Link to="/" className="text-sm text-zinc-300 hover:text-white">← Back</Link>
-      <h1 className="text-2xl font-bold mt-3">Leagues for tournament #{tournamentId}</h1>
+
+      <h1 className="text-3xl font-bold mt-3">
+        {tournament ? tournament.name : "Tournament"}
+      </h1>
+
       {loading && <p className="text-zinc-300 mt-3">Loading leagues…</p>}
       {err && <p className="text-red-400 mt-3">{err}</p>}
+
       {!loading && !err && (
-        <div className="mt-4 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {leagues.length === 0 && <p className="text-zinc-300">No leagues yet.</p>}
+        <div className="mt-4 flex flex-col gap-3">
+          {leagues.length === 0 && (
+            <p className="text-zinc-300">No leagues yet.</p>
+          )}
+
           {leagues.map((lg) => (
-            <div key={lg.id} className="rounded-2xl border border-white/10 p-5 bg-white/5">
-              <h3 className="text-lg font-semibold">{lg.name}</h3>
-              <p className="text-sm text-zinc-300 mt-1">Budget: {lg.budget}</p>
-              <div className="mt-4">
-                <button
-                  className="px-4 py-2 rounded-2xl bg-white text-black hover:bg-zinc-200"
-                  onClick={() => navigate(`/draft/${lg.id}`)}
-                >
-                  Enter league
-                </button>
+            <div
+              key={lg.id}
+              className="rounded-xl border border-white/10 p-3 bg-white/5 cursor-pointer hover:bg-white/10 transition"
+              onClick={() => navigate(`/draft/${lg.id}`)}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold">{lg.name}</h3>
+                <span className="text-xs text-zinc-400">Budget: {lg.budget}</span>
               </div>
             </div>
           ))}

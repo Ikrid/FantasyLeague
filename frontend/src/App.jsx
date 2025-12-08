@@ -222,24 +222,26 @@ function TournamentsSection() {
       {err && <p className="text-red-400 mt-6">{err}</p>}
 
       {!loading && !err && (
-        <div className="mt-6 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="mt-6 flex flex-col gap-3">
           {tournaments.map((t) => {
             const st = statusOf(t.start_date, t.end_date);
             const dateLabel =
               t.start_date || t.end_date
                 ? `${fmtDate(t.start_date)}${t.end_date ? " – " + fmtDate(t.end_date) : ""}`
                 : "";
+
             return (
-              <div key={t.id} className="rounded-2xl border border-white/10 p-5 bg-white/5">
+              <div
+                key={t.id}
+                onClick={() => openTournament(t)}
+                className="rounded-xl border border-white/10 p-3 bg-white/5 cursor-pointer hover:bg-white/10 transition"
+              >
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xl font-semibold">{t.name}</h3>
-                  <span className="text-xs px-2 py-1 rounded-full bg-white/10">{st}</span>
+                  <h3 className="text-lg font-semibold">{t.name}</h3>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-white/10">{st}</span>
                 </div>
-                <p className="text-sm text-zinc-300 mt-1">{dateLabel}</p>
-                <div className="mt-4 flex items-center gap-3">
-                  <Button onClick={() => openTournament(t)}>Enter</Button>
-                  <a className="text-sm text-zinc-300 hover:text-white" href="#faq">What is this?</a>
-                </div>
+
+                <p className="text-xs text-zinc-400 mt-1">{dateLabel}</p>
               </div>
             );
           })}
@@ -251,9 +253,9 @@ function TournamentsSection() {
 
 function FAQSection() {
   const items = [
-{ q: "What is this?", a: "A CS2 fantasy manager: you pick 5 players before the tournament starts and earn points based on their real match performances." },
-{ q: "How do I choose players?", a: "Open the tournament, press Enter — you’ll see 5 slots at the top and the player market below. No more than 2 players from the same team." },
-{ q: "When can’t I change my lineup?", a: "Once the tournament starts, your lineup is locked. Balance and points are calculated automatically." },
+    { q: "What is this?", a: "A CS2 fantasy manager: you pick 5 players before the tournament starts and earn points based on their real match performances." },
+    { q: "How do I choose players?", a: "Open the tournament, press Enter — you’ll see 5 slots at the top and the player market below. No more than 2 players from the same team." },
+    { q: "When can’t I change my lineup?", a: "Once the tournament starts, your lineup is locked. Balance and points are calculated automatically." },
   ];
   return (
     <section id="faq" className="border-t border-white/10 bg-black">
@@ -287,25 +289,26 @@ function Landing() {
     <div className="min-h-screen bg-black text-white">
       <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to="/" className="text-lg font-semibold tracking-wide">Fantasy CS2</Link><nav className="flex items-center gap-3">
-  {token && (
-    <Link
-      to="/admin-tools"
-      className="text-sm text-zinc-300 hover:text-white px-3 py-1.5 border border-white/10 rounded-xl"
-    >
-      Admin Tools
-    </Link>
-  )}
+          <Link to="/" className="text-lg font-semibold tracking-wide">Fantasy CS2</Link>
+          <nav className="flex items-center gap-3">
+            {token && (
+              <Link
+                to="/admin-tools"
+                className="text-sm text-zinc-300 hover:text-white px-3 py-1.5 border border-white/10 rounded-xl"
+              >
+                Admin Tools
+              </Link>
+            )}
 
-  {token ? (
-    <>
-      <span className="text-sm text-zinc-300">{username || "Signed in"}</span>
-      <Button variant="ghost" onClick={logout}>Logout</Button>
-    </>
-  ) : (
-    <Button onClick={() => setLoginOpen(true)}>Login</Button>
-  )}
-</nav>
+            {token ? (
+              <>
+                <span className="text-sm text-zinc-300">{username || "Signed in"}</span>
+                <Button variant="ghost" onClick={logout}>Logout</Button>
+              </>
+            ) : (
+              <Button onClick={() => setLoginOpen(true)}>Login</Button>
+            )}
+          </nav>
         </div>
       </header>
 
