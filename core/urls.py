@@ -55,4 +55,7 @@ urlpatterns = [
     path('auth/me', MeView.as_view(), name='auth-me'),
     path('hltv/import-tournament', HLTVImportView.as_view()),
 
+# standings / ladder
+    path('leagues/<int:league_id>/standings', LeagueStandingsView.as_view()),
+    path('leagues/<int:league_id>/ladder/', LeagueStandingsView.as_view()),
 ]

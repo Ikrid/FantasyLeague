@@ -1,4 +1,7 @@
-﻿from rest_framework import viewsets, generics, status
+﻿from math import ceil
+
+from django.db.models.functions import Coalesce
+from rest_framework import viewsets, generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -416,3 +419,97 @@ class HLTVImportView(APIView):
             )
 
         return Response(result, status=status.HTTP_200_OK)
+
+# STANDINGS / LADDER
+class LeagueStandingsView(APIView):
+    """
+    Ладдер лиги с пагинацией.
+    GET /api/leagues/<league_id>/ladder/?page=1
+
+    По умолчанию:
+    - page_size = 20
+    - сортировка по total_points DESC, затем id ASC
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, league_id):
+        # 1. Лига
+        try:
+            league = League.objects.select_related("tournament").get(pk=league_id)
+        except League.DoesNotExist:
+            return Response({"detail": "League not found"}, status=404)
+
+        # 2. Параметры пагинации
+        page_size = 20
+        raw_page = request.query_params.get("page", "1")
+        try:
+            page = int(raw_page)
+        except ValueError:
+            page = 1
+        if page < 1:
+            page = 1
+
+        # 3. Базовый queryset по FantasyTeam
+        base_qs = (
+            FantasyTeam.objects
+            .filter(league=league)
+            .select_related("user", "league")
+            .annotate(
+                total_points=Coalesce(Sum("fantasypoints__points"), 0.0),
+                roster_size=Count("fantasyroster", distinct=True),
+            )
+            .order_by("-total_points", "id")
+        )
+
+        total_teams = base_qs.count()
+        total_pages = ceil(total_teams / page_size) if total_teams else 1
+
+        if page > total_pages:
+            page = total_pages
+
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        teams_page = base_qs[start:end]
+
+        ladder = []
+        for idx, ft in enumerate(teams_page, start=0):
+            rank = start + idx + 1  # глобальный ранг
+            pts = float(ft.total_points or 0)
+
+            ladder.append(
+                {
+                    "rank": rank,
+                    "fantasy_team_id": ft.id,
+                    "team_name": ft.user_name,  # название команды в лиге
+                    "user_name": ft.user.username if ft.user_id else None,
+                    "total_points": pts,
+                    "roster_size": ft.roster_size,
+                    "budget_left": ft.budget_left,
+                }
+            )
+
+        league_data = {
+            "id": league.id,
+            "name": league.name,
+            "tournament_id": league.tournament_id,
+            "budget": league.budget,
+            "max_badges": league.max_badges,
+            "lock_policy": league.lock_policy,
+        }
+
+        return Response(
+            {
+                "league": league_data,
+                "ladder": ladder,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_teams": total_teams,
+                    "total_pages": total_pages,
+                    "has_next": page < total_pages,
+                    "has_prev": page > 1,
+                },
+            }
+        )
