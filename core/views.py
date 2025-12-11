@@ -513,3 +513,124 @@ class LeagueStandingsView(APIView):
                 },
             }
         )
+
+    class TournamentTopPlayersView(APIView):
+        """
+        Топ-8 самых часто выбранных игроков по турниру.
+        GET /api/tournaments/<tournament_id>/top-players/
+        """
+        permission_classes = [AllowAny]
+
+        def get(self, request, tournament_id):
+            # Проверяем, что турнир существует
+            try:
+                tournament = Tournament.objects.get(pk=tournament_id)
+            except Tournament.DoesNotExist:
+                return Response({"detail": "Tournament not found"}, status=404)
+
+            # Считаем, сколько раз каждый игрок выбран в FantasyRoster
+            # внутри всех лиг этого турнира
+            qs = (
+                FantasyRoster.objects
+                .filter(fantasy_team__league__tournament=tournament)
+                .values("player_id")
+                .annotate(picks_count=Count("id"))
+                .order_by("-picks_count", "player_id")[:8]
+            )
+
+            player_ids = [row["player_id"] for row in qs]
+            players_by_id = {p.id: p for p in Player.objects.filter(id__in=player_ids)}
+
+            top_players = []
+            for row in qs:
+                pid = row["player_id"]
+                player = players_by_id.get(pid)
+
+                if player is not None:
+                    # Пытаемся вытащить более-менее осмысленное имя
+                    name = None
+                    for attr in ("nickname", "name", "full_name"):
+                        if hasattr(player, attr):
+                            name = getattr(player, attr)
+                            if name:
+                                break
+                    if not name:
+                        name = str(player)
+                else:
+                    name = f"Player {pid}"
+
+                top_players.append(
+                    {
+                        "player_id": pid,
+                        "player_name": name,
+                        "picks_count": row["picks_count"],
+                    }
+                )
+
+            return Response(
+                {
+                    "tournament": {"id": tournament.id, "name": tournament.name},
+                    "top_players": top_players,
+                }
+            )
+
+
+class TournamentTopPlayersView(APIView):
+    """
+    Топ-8 самых часто выбранных игроков по турниру.
+    GET /api/tournaments/<tournament_id>/top-players/
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, tournament_id):
+        # Проверяем, что турнир существует
+        try:
+            tournament = Tournament.objects.get(pk=tournament_id)
+        except Tournament.DoesNotExist:
+            return Response({"detail": "Tournament not found"}, status=404)
+
+        # Считаем, сколько раз каждый игрок выбран в FantasyRoster
+        # внутри всех лиг этого турнира
+        qs = (
+            FantasyRoster.objects
+            .filter(fantasy_team__league__tournament=tournament)
+            .values("player_id")
+            .annotate(picks_count=Count("id"))
+            .order_by("-picks_count", "player_id")[:8]
+        )
+
+        player_ids = [row["player_id"] for row in qs]
+        players_by_id = {p.id: p for p in Player.objects.filter(id__in=player_ids)}
+
+        top_players = []
+        for row in qs:
+            pid = row["player_id"]
+            player = players_by_id.get(pid)
+
+            if player is not None:
+                # Пытаемся вытащить более-менее осмысленное имя
+                name = None
+                for attr in ("nickname", "name", "full_name"):
+                    if hasattr(player, attr):
+                        name = getattr(player, attr)
+                        if name:
+                            break
+                if not name:
+                    name = str(player)
+            else:
+                name = f"Player {pid}"
+
+            top_players.append(
+                {
+                    "player_id": pid,
+                    "player_name": name,
+                    "picks_count": row["picks_count"],
+                }
+            )
+
+        return Response(
+            {
+                "tournament": {"id": tournament.id, "name": tournament.name},
+                "top_players": top_players,
+            }
+        )
