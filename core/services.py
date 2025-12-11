@@ -56,9 +56,9 @@ def generate_market_prices_for_tournament(
     slots: int = 5,
     use_days_window: int = 90,
     weight_rating: float = 0.45,
-    weight_kdr: float = 0.20,
+    weight_kdr: float = 0.20,  # теперь используется как вес kills_per_round
     weight_adr: float = 0.15,
-    weight_fpm: float = 0.15,
+    weight_fpm: float = 0.15,  # теперь используется как вес clutch_points_per_round (impact)
     weight_team: float = 0.15,
     max_rank: int = 50,
     avg_price_mult: float = 1.0,
@@ -66,77 +66,102 @@ def generate_market_prices_for_tournament(
     flank_max_mult: float = 1.25,
     source_label: str = "AUTO",
 ) -> int:
-    """Генерация цен игроков турнира по статистике."""
-    now = timezone.now()
-    since = now - timedelta(days=use_days_window)
+    """
+    Генерация цен игроков турнира.
 
+    НОВАЯ ЛОГИКА:
+    - опираемся на рейтинг команды (Team.world_rank)
+      и агрегированные HLTV-метрики из PlayerHLTVStats;
+    - если по игроку НЕТ PlayerHLTVStats, ему ставится дефолтная цена
+      (по умолчанию это средняя цена, при стандартных параметрах
+       budget=1_000_000 и slots=5 это будет 200_000);
+    - сырые PlayerMapStats и FantasyPoints для цены больше не используются.
+
+    Параметры weight_kdr / weight_fpm переиспользованы:
+    - weight_kdr → вес kills_per_round;
+    - weight_fpm → вес clutch_points_per_round (как прокси "impact").
+    """
     # --- участники турнира
     team_ids = list(_team_ids_for_tournament(tournament_id))
     if not team_ids:
         return 0
 
-    players = Player.objects.filter(team_id__in=team_ids).select_related("team")
-    player_ids = list(players.values_list("id", flat=True))
-    if not player_ids:
+    # Подтягиваем команды и HLTV-статы одним запросом
+    players = (
+        Player.objects
+        .filter(team_id__in=team_ids)
+        .select_related("team", "hltv_stats")
+    )
+    players = list(players)
+    if not players:
         return 0
 
-    # агрегаты по статистике
-    stats_qs = (
-        PlayerMapStats.objects
-        .select_related("map", "map__match", "player", "player__team")
-        .filter(
-            player_id__in=player_ids,
-            map__match__start_time__gte=since,
-            map__match__start_time__lte=now
-        )
-        .values("player_id")
-        .annotate(
-            kills=Coalesce(Sum("kills"), 0),
-            deaths=Coalesce(Sum("deaths"), 0),
-            adr_sum=Coalesce(Sum(Cast("adr", FloatField())), 0.0),
-            adr_cnt=Coalesce(Count("id"), 0),
-            rating_sum=Coalesce(Sum(Cast("rating2", FloatField())), 0.0),
-            rating_cnt=Coalesce(Count("id"), 0),
-        )
-    )
-    agg = {row["player_id"]: row for row in stats_qs}
-
-    # средние fantasy-поинты
-    fpm_qs = (
-        FantasyPoints.objects
-        .filter(player_id__in=player_ids)
-        .values("player_id")
-        .annotate(avg=Coalesce(Cast(Avg("points"), FloatField()), 0.0))
-    )
-    fpm_map = {r["player_id"]: float(r["avg"]) for r in fpm_qs}
-
-    # подготовка метрик
+    # Собираем метрики только для игроков, у которых есть HLTV-статистика
     metrics: dict[int, dict] = {}
-    for pid in player_ids:
-        row = agg.get(pid)
-        if row:
-            k = float(row["kills"])
-            d = float(row["deaths"])
-            adr_avg = float(row["adr_sum"] / row["adr_cnt"]) if row["adr_cnt"] else None
-            rating_avg = float(row["rating_sum"] / row["rating_cnt"]) if row["rating_cnt"] else None
-            kdr = (k / d) if d > 0 else (k if k > 0 else 0.0)
-        else:
-            rating_avg = adr_avg = kdr = None
-        metrics[pid] = {"rating": rating_avg, "kdr": kdr, "adr": adr_avg, "fpm": fpm_map.get(pid)}
+    players_with_stats: set[int] = set()
+    players_without_stats: set[int] = set()
 
-    def collect_clean(key):
-        return [float(v) for v in (m.get(key) for m in metrics.values()) if v is not None]
+    for p in players:
+        st = getattr(p, "hltv_stats", None)
+        if st is None:
+            players_without_stats.add(p.id)
+            continue
+
+        # Берём базовые показатели:
+        # - rating2  (Rating 3.0)
+        # - kills_per_round
+        # - adr      (Damage per round)
+        # - clutch_points_per_round как proxy "impact"
+        metrics[p.id] = {
+            "rating": float(st.rating2) if st.rating2 else None,
+            "kdr": float(st.kills_per_round) if st.kills_per_round else None,
+            "adr": float(st.adr) if st.adr else None,
+            "fpm": float(st.clutch_points_per_round) if st.clutch_points_per_round else None,
+        }
+        players_with_stats.add(p.id)
+
+    # Средняя / дефолтная цена (при дефолтных параметрах == 200_000)
+    avg_price = int((budget / slots) * avg_price_mult)
+    default_price = avg_price
+
+    # Если вообще ни у кого нет HLTV-статистики — всем дефолт
+    if not players_with_stats:
+        upserts = 0
+        for p in players:
+            PlayerPrice.objects.update_or_create(
+                tournament_id=tournament_id,
+                player_id=p.id,
+                defaults={
+                    "price": default_price,
+                    "source": source_label,
+                    "calc_meta": {"default_price": True, "reason": "no_hltv_stats"},
+                },
+            )
+            upserts += 1
+        return upserts
+
+    # Функции нормализации считаем только по тем, у кого есть HLTV-метрики
+    def collect_clean(key: str):
+        vals = []
+        for pid in players_with_stats:
+            v = metrics[pid].get(key)
+            if v is not None:
+                vals.append(float(v))
+        return vals
 
     def norm_func(vals):
         if not vals:
+            # если совсем нет значений по этому параметру, считаем его нейтральным (0.5)
             return (lambda _x: 0.5), 0.0, 0.0
         vmin, vmax = min(vals), max(vals)
         if vmax - vmin < 1e-9:
             return (lambda _x: 0.5), vmin, vmax
+
         def _norm(x):
             if x is None:
                 return 0.5
             return (float(x) - vmin) / (vmax - vmin)
+
         return _norm, vmin, vmax
 
     norm_rating, rmin, rmax = norm_func(collect_clean("rating"))
@@ -144,67 +169,145 @@ def generate_market_prices_for_tournament(
     norm_adr, amin, amax = norm_func(collect_clean("adr"))
     norm_fpm, fmin, fmax = norm_func(collect_clean("fpm"))
 
-    # скоринг
+    # скоринг — считаем только для игроков со статистикой
     score_by_player: dict[int, float] = {}
     team_factor_by_player: dict[int, float] = {}
     for p in players:
+        if p.id not in players_with_stats:
+            continue
+
         mtr = metrics.get(p.id, {})
         nr = norm_rating(mtr.get("rating"))
         nk = norm_kdr(mtr.get("kdr"))
         na = norm_adr(mtr.get("adr"))
         nf = norm_fpm(mtr.get("fpm"))
         tf = _team_factor(getattr(p.team, "world_rank", None), max_rank=max_rank)
-        S = (weight_rating * nr + weight_kdr * nk + weight_adr * na + weight_fpm * nf + weight_team * tf)
+
+        S = (
+            weight_rating * nr
+            + weight_kdr * nk
+            + weight_adr * na
+            + weight_fpm * nf
+            + weight_team * tf
+        )
         score_by_player[p.id] = S
         team_factor_by_player[p.id] = tf
 
+    if not score_by_player:
+        # Теоретически возможно, если все показатели None → ставим дефолт
+        upserts = 0
+        for p in players:
+            PlayerPrice.objects.update_or_create(
+                tournament_id=tournament_id,
+                player_id=p.id,
+                defaults={
+                    "price": default_price,
+                    "source": source_label,
+                    "calc_meta": {"default_price": True, "reason": "empty_metrics"},
+                },
+            )
+            upserts += 1
+        return upserts
+
     S_values = list(score_by_player.values())
     Smin, Smax = min(S_values), max(S_values)
-    avg_price = int((budget / slots) * avg_price_mult)
+
     pmin_target = int(avg_price * flank_min_mult)
     pmax_target = int(avg_price * flank_max_mult)
 
     upserts = 0
+
+    # Если все S одинаковые — даём всем одинаковую цену для игроков со статистикой.
     if Smax - Smin < 1e-9:
         for p in players:
-            PlayerPrice.objects.update_or_create(
-                tournament_id=tournament_id, player_id=p.id,
-                defaults={"price": avg_price, "source": source_label, "calc_meta": {"flat": True}}
-            )
-            upserts += 1
+            if p.id in players_with_stats:
+                PlayerPrice.objects.update_or_create(
+                    tournament_id=tournament_id,
+                    player_id=p.id,
+                    defaults={
+                        "price": avg_price,
+                        "source": source_label,
+                        "calc_meta": {
+                            "flat": True,
+                            "rating": metrics[p.id].get("rating"),
+                            "kdr": metrics[p.id].get("kdr"),
+                            "adr": metrics[p.id].get("adr"),
+                            "fpm": metrics[p.id].get("fpm"),
+                            "team_factor": team_factor_by_player.get(p.id),
+                        },
+                    },
+                )
+                upserts += 1
+            else:
+                PlayerPrice.objects.update_or_create(
+                    tournament_id=tournament_id,
+                    player_id=p.id,
+                    defaults={
+                        "price": default_price,
+                        "source": source_label,
+                        "calc_meta": {"default_price": True, "reason": "no_hltv_stats_flat"},
+                    },
+                )
+                upserts += 1
         return upserts
 
     beta = (pmax_target - pmin_target) / (Smax - Smin)
     alpha = pmin_target - beta * Smin
 
+    # Применяем ценовую модель:
     for p in players:
-        S = score_by_player[p.id]
-        price = int(round(alpha + beta * S))
-        PlayerPrice.objects.update_or_create(
-            tournament_id=tournament_id, player_id=p.id,
-            defaults={
-                "price": price,
-                "source": source_label,
-                "calc_meta": {
-                    "rating": metrics[p.id].get("rating"),
-                    "kdr": metrics[p.id].get("kdr"),
-                    "adr": metrics[p.id].get("adr"),
-                    "fpm": metrics[p.id].get("fpm"),
-                    "team_factor": team_factor_by_player[p.id],
-                    "S": S,
-                    "alpha": alpha, "beta": beta,
-                    "targets": {"avg": avg_price, "min": pmin_target, "max": pmax_target},
-                    "weights": {"rating": weight_rating, "kdr": weight_kdr, "adr": weight_adr, "fpm": weight_fpm, "team": weight_team},
-                    "norm": {
-                        "rating_min": rmin, "rating_max": rmax,
-                        "kdr_min": kmin, "kdr_max": kmax,
-                        "adr_min": amin, "adr_max": amax,
-                        "fpm_min": fmin, "fpm_max": fmax,
+        if p.id in players_with_stats:
+            S = score_by_player[p.id]
+            price = int(round(alpha + beta * S))
+            PlayerPrice.objects.update_or_create(
+                tournament_id=tournament_id,
+                player_id=p.id,
+                defaults={
+                    "price": price,
+                    "source": source_label,
+                    "calc_meta": {
+                        "rating": metrics[p.id].get("rating"),
+                        "kdr": metrics[p.id].get("kdr"),
+                        "adr": metrics[p.id].get("adr"),
+                        "fpm": metrics[p.id].get("fpm"),
+                        "team_factor": team_factor_by_player.get(p.id),
+                        "S": S,
+                        "alpha": alpha,
+                        "beta": beta,
+                        "targets": {"avg": avg_price, "min": pmin_target, "max": pmax_target},
+                        "weights": {
+                            "rating": weight_rating,
+                            "kdr": weight_kdr,
+                            "adr": weight_adr,
+                            "fpm": weight_fpm,
+                            "team": weight_team,
+                        },
+                        "norm": {
+                            "rating_min": rmin,
+                            "rating_max": rmax,
+                            "kdr_min": kmin,
+                            "kdr_max": kmax,
+                            "adr_min": amin,
+                            "adr_max": amax,
+                            "fpm_min": fmin,
+                            "fpm_max": fmax,
+                        },
                     },
                 },
-            },
-        )
-        upserts += 1
+            )
+            upserts += 1
+        else:
+            PlayerPrice.objects.update_or_create(
+                tournament_id=tournament_id,
+                player_id=p.id,
+                defaults={
+                    "price": default_price,
+                    "source": source_label,
+                    "calc_meta": {"default_price": True, "reason": "no_hltv_stats"},
+                },
+            )
+            upserts += 1
+
     return upserts
 
 
@@ -285,14 +388,21 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         PlayerPrice.objects
         .select_related("player", "player__team")
         .filter(tournament=league.tournament)
-        .order_by("-price")
+        .order_by(
+            "player__team__world_rank",   # сначала по месту команды в рейтинге (1,2,3,...)
+            "player__team__name",         # потом по названию команды
+            "-price",                     # внутри команды — по цене (дороже выше)
+            "player__nickname",           # и по нику
+        )
     )
+
     market = [
         {
             "player_id": pp.player_id,
             "player_name": pp.player.nickname,
             "team_id": pp.player.team_id,
             "team_name": getattr(pp.player.team, "name", None),
+            "team_world_rank": getattr(pp.player.team, "world_rank", None),
             "price": pp.price,
         }
         for pp in market_qs

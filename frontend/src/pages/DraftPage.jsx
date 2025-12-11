@@ -155,9 +155,7 @@ export default function DraftPage() {
         const only = (ms || []).filter(
           (m) => Number(m.tournament) === Number(tournamentId)
         );
-        only.sort(
-          (a, b) => new Date(a.start_time) - new Date(b.start_time)
-        );
+        only.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
         setMatches(only.slice(0, 10));
       } catch {}
     }
@@ -165,6 +163,34 @@ export default function DraftPage() {
   }, [tournamentId, finished]);
 
   const market = useMemo(() => (state?.market || []).slice(), [state]);
+
+  // === Группировка игроков маркета по командам ===
+  const marketByTeam = useMemo(() => {
+    const list = market || [];
+    const groups = [];
+    let currentKey = null;
+    let currentGroup = null;
+
+    for (const p of list) {
+      const key = p.team_id ?? p.team_name ?? "unknown";
+      if (key !== currentKey) {
+        currentKey = key;
+        currentGroup = {
+          key,
+          teamName: p.team_name || "Unknown team",
+          worldRank:
+            typeof p.team_world_rank === "number" ? p.team_world_rank : null,
+          players: [],
+        };
+        groups.push(currentGroup);
+      }
+      if (currentGroup) {
+        currentGroup.players.push(p);
+      }
+    }
+
+    return groups;
+  }, [market]);
 
   /* ===== BUY LOGIC ===== */
   function canBuy(p) {
@@ -289,7 +315,7 @@ export default function DraftPage() {
               return (
                 <div
                   key={i}
-                  className="rounded-2xl border border-white/10 p-4 bg-white/5 h-full"
+                  className="rounded-2xl border border-white/10 p-4 bg:white/5 bg-white/5 h-full"
                 >
                   {!r ? (
                     <div className="h-full flex flex-col items-center justify-center text-zinc-400">
@@ -348,62 +374,79 @@ export default function DraftPage() {
             <h2 className="text-lg font-semibold mb-3">Market</h2>
 
             {!loading && !err && (
-              <div className="mt-2 grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {market.map((p) => {
-                  const owned = roster.some(
-                    (r) => r.player_id === p.player_id
-                  );
-                  const disabled = !canBuy(p);
-                  return (
-                    <div
-                      key={p.player_id}
-                      className={`rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10 ${
-                        !disabled ? "cursor-pointer" : "opacity-90"
-                      }`}
-                      onClick={() => openPlayerModal(p)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm text-zinc-400">
-                            {p.team_name}
-                          </div>
-                          <div className="text-lg font-semibold">
-                            {p.player_name}
-                          </div>
-                        </div>
-
-                        {owned && <Pill>Owned</Pill>}
-                      </div>
-
-                      <div className="mt-3">
-                        {owned ? (
-                          <Button
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              doSell(p);
-                            }}
-                            disabled={started}
-                            className="w-full"
-                          >
-                            Sell ({Number(p.price).toLocaleString()})
-                          </Button>
-                        ) : (
-                          <Button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              doBuy(p);
-                            }}
-                            disabled={disabled}
-                            className="w-full"
-                          >
-                            Buy for {Number(p.price).toLocaleString()}
-                          </Button>
+              <div className="space-y-6 mt-2">
+                {marketByTeam.map((group) => (
+                  <div key={group.key}>
+                    {/* Заголовок команды + её место в рейтинге */}
+                    <div className="flex items-baseline justify-between mb-2">
+                      <div className="text-sm font-semibold">
+                        {group.teamName}
+                        {group.worldRank != null && (
+                          <span className="ml-2 text-xs text-zinc-400">
+                            World rank #{group.worldRank}
+                          </span>
                         )}
                       </div>
                     </div>
-                  );
-                })}
+
+                    {/* Игроки этой команды */}
+                    <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {group.players.map((p) => {
+                        const owned = roster.some(
+                          (r) => r.player_id === p.player_id
+                        );
+                        const disabled = !canBuy(p);
+                        return (
+                          <div
+                            key={p.player_id}
+                            className={`rounded-2xl border border:white/10 border-white/10 bg:white/5 bg-white/5 p-4 transition hover:bg:white/10 hover:bg-white/10 ${
+                              !disabled ? "cursor-pointer" : "opacity-90"
+                            }`}
+                            onClick={() => openPlayerModal(p)}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                {/* Убрали отображение названия команды на карточке */}
+                                <div className="text-lg font-semibold">
+                                  {p.player_name}
+                                </div>
+                              </div>
+
+                              {owned && <Pill>Owned</Pill>}
+                            </div>
+
+                            <div className="mt-3">
+                              {owned ? (
+                                <Button
+                                  variant="ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    doSell(p);
+                                  }}
+                                  disabled={started}
+                                  className="w-full"
+                                >
+                                  Sell ({Number(p.price).toLocaleString()})
+                                </Button>
+                              ) : (
+                                <Button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    doBuy(p);
+                                  }}
+                                  disabled={disabled}
+                                  className="w-full"
+                                >
+                                  Buy for {Number(p.price).toLocaleString()}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </section>
@@ -416,9 +459,7 @@ export default function DraftPage() {
           open={!!selected}
           onClose={() => setSelected(null)}
           title={
-            selected
-              ? `${selected.player_name} — ${selected.team_name}`
-              : ""
+            selected ? `${selected.player_name} — ${selected.team_name}` : ""
           }
           footer={
             selected && (
@@ -466,115 +507,134 @@ export default function DraftPage() {
                 {!statLoading && !stat && (
                   <p className="text-sm text-zinc-300">No data.</p>
                 )}
-<div className="rounded-xl border border-white/10 bg-white/5 p-4">
-  <div className="flex items-center justify-between mb-2">
-    <h4 className="font-semibold">HLTV stats (last 3 months)</h4>
-    {statLoading && (
-      <span className="text-xs text-zinc-400">Loading…</span>
-    )}
-  </div>
 
-  {statErr && (
-    <p className="text-sm text-red-400">{statErr}</p>
-  )}
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-semibold">
+                      HLTV stats (last 3 months)
+                    </h4>
+                    {statLoading && (
+                      <span className="text-xs text-zinc-400">Loading…</span>
+                    )}
+                  </div>
 
-  {!statLoading && !stat && !statErr && (
-    <p className="text-sm text-zinc-300">No data.</p>
-  )}
+                  {statErr && (
+                    <p className="text-sm text-red-400">{statErr}</p>
+                  )}
 
-  {!statLoading && stat && (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-      <InfoTile
-        label="Rating 3.0"
-        value={
-          stat.rating2 != null
-            ? Number(stat.rating2).toFixed(2)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Kills / round"
-        value={
-          stat.kills_per_round != null
-            ? Number(stat.kills_per_round).toFixed(2)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="ADR"
-        value={
-          stat.adr != null
-            ? Number(stat.adr).toFixed(1)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Opening kills / round"
-        value={
-          stat.opening_kills_per_round != null
-            ? Number(stat.opening_kills_per_round).toFixed(3)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Opening deaths / round"
-        value={
-          stat.opening_deaths_per_round != null
-            ? Number(stat.opening_deaths_per_round).toFixed(3)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Win% after opening kill"
-        value={
-          stat.win_after_opening != null
-            ? `${Number(stat.win_after_opening).toFixed(1)}%`
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Multi-kill rounds"
-        value={
-          stat.multikill_rounds_pct != null
-            ? `${Number(stat.multikill_rounds_pct).toFixed(1)}%`
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Clutch points / round"
-        value={
-          stat.clutch_points_per_round != null
-            ? Number(stat.clutch_points_per_round).toFixed(3)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Sniper kills / round"
-        value={
-          stat.sniper_kills_per_round != null
-            ? Number(stat.sniper_kills_per_round).toFixed(3)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Utility dmg / round"
-        value={
-          stat.utility_damage_per_round != null
-            ? Number(stat.utility_damage_per_round).toFixed(1)
-            : "—"
-        }
-      />
-      <InfoTile
-        label="Flash assists / round"
-        value={
-          stat.flash_assists_per_round != null
-            ? Number(stat.flash_assists_per_round).toFixed(3)
-            : "—"
-        }
-      />
-    </div>
-  )}
-</div>
+                  {!statLoading && !stat && !statErr && (
+                    <p className="text-sm text-zinc-300">No data.</p>
+                  )}
+
+                  {!statLoading && stat && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                      <InfoTile
+                        label="Rating 3.0"
+                        value={
+                          stat.rating2 != null
+                            ? Number(stat.rating2).toFixed(2)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Kills / round"
+                        value={
+                          stat.kills_per_round != null
+                            ? Number(stat.kills_per_round).toFixed(2)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="ADR"
+                        value={
+                          stat.adr != null
+                            ? Number(stat.adr).toFixed(1)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Opening kills / round"
+                        value={
+                          stat.opening_kills_per_round != null
+                            ? Number(
+                                stat.opening_kills_per_round
+                              ).toFixed(3)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Opening deaths / round"
+                        value={
+                          stat.opening_deaths_per_round != null
+                            ? Number(
+                                stat.opening_deaths_per_round
+                              ).toFixed(3)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Win% after opening kill"
+                        value={
+                          stat.win_after_opening != null
+                            ? `${Number(
+                                stat.win_after_opening
+                              ).toFixed(1)}%`
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Multi-kill rounds"
+                        value={
+                          stat.multikill_rounds_pct != null
+                            ? `${Number(
+                                stat.multikill_rounds_pct
+                              ).toFixed(1)}%`
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Clutch points / round"
+                        value={
+                          stat.clutch_points_per_round != null
+                            ? Number(
+                                stat.clutch_points_per_round
+                              ).toFixed(3)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Sniper kills / round"
+                        value={
+                          stat.sniper_kills_per_round != null
+                            ? Number(
+                                stat.sniper_kills_per_round
+                              ).toFixed(3)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Utility dmg / round"
+                        value={
+                          stat.utility_damage_per_round != null
+                            ? Number(
+                                stat.utility_damage_per_round
+                              ).toFixed(1)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Flash assists / round"
+                        value={
+                          stat.flash_assists_per_round != null
+                            ? Number(
+                                stat.flash_assists_per_round
+                              ).toFixed(3)
+                            : "—"
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}

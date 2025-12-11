@@ -149,6 +149,19 @@ class HLTVTournamentScraper:
             # отрезаем ранги типа "#48"
             team_name = raw_name.split("#", 1)[0].strip()
 
+            # ---------- НОВОЕ: парсим world_rank из <div class="event-world-rank"> ----------
+            world_rank = None  # <<< NEW
+            rank_div = box.select_one("div.event-world-rank")  # <<< NEW
+            if rank_div:  # <<< NEW
+                rank_text = rank_div.get_text(strip=True)  # например "#34"  <<< NEW
+                m = re.search(r"\d+", rank_text)  # <<< NEW
+                if m:  # <<< NEW
+                    try:  # <<< NEW
+                        world_rank = int(m.group(0))  # 34  <<< NEW
+                    except ValueError:  # <<< NEW
+                        world_rank = None  # <<< NEW
+            # ----------------------------------------------------------------------
+
             # --- игроки (ровно 5 из lineup-box) ---
             lineup_box = box.select_one(".lineup-box")
             if not lineup_box:
@@ -182,6 +195,7 @@ class HLTVTournamentScraper:
                     "name": team_name,
                     "url": team_url,
                     "players": players,
+                    "world_rank": world_rank,  # <<< NEW
                 }
             )
 
@@ -326,6 +340,15 @@ class HLTVTournamentScraper:
             team_obj, _ = Team.objects.get_or_create(
                 name=team_name,
             )
+
+            # ---------- НОВОЕ: сохраняем world_rank в модель Team ----------
+            # tdata["world_rank"] может быть None, если на странице нет ранга
+            world_rank = tdata.get("world_rank")  # <<< NEW
+            if world_rank is not None and getattr(team_obj, "world_rank", None) != world_rank:  # <<< NEW
+                team_obj.world_rank = world_rank  # <<< NEW
+                # update_fields чтобы не трогать другие поля  <<< NEW
+                team_obj.save(update_fields=["world_rank"])  # <<< NEW
+            # --------------------------------------------------------------
 
             for pdata in tdata["players"]:
                 nickname = pdata["nickname"]
