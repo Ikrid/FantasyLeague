@@ -33,6 +33,7 @@ urlpatterns = [
     # админ-утилиты
     path("admin/recalculate", AdminRecalcView.as_view()),
     path("market/generate", MarketGenerateView.as_view()),
+    path("market/generate/", MarketGenerateView.as_view()),
 
     # standings / ladder + турнирная статистика
     path("leagues/<int:league_id>/standings", LeagueStandingsView.as_view()),

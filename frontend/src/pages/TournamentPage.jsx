@@ -2,6 +2,7 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 const BASE_URL = "http://localhost:8000/api";
+const LEAGUES_PER_PAGE = 10; // сколько лиг на странице
 
 async function apiGetPublic(path) {
   const res = await fetch(`${BASE_URL}${path}`);
@@ -47,6 +48,8 @@ export default function TournamentPage() {
   const [topPlayersLoading, setTopPlayersLoading] = useState(false);
   const [topPlayersErr, setTopPlayersErr] = useState("");
 
+  const [leaguePage, setLeaguePage] = useState(1); // пагинация лиг
+
   // 1) турнир
   useEffect(() => {
     if (!tournamentId) return;
@@ -61,7 +64,10 @@ export default function TournamentPage() {
     if (!tournamentId) return;
     setLoading(true);
     apiGetPublic(`/leagues?tournament=${tournamentId}`)
-      .then((data) => setLeagues(data))
+      .then((data) => {
+        setLeagues(data);
+        setLeaguePage(1); // при загрузке сбрасываем на первую страницу
+      })
       .catch((e) => setErr(String(e.message || e)))
       .finally(() => setLoading(false));
   }, [tournamentId]);
@@ -116,13 +122,8 @@ export default function TournamentPage() {
       const body = {
         name: trimmed,
         tournament: Number(tournamentId),
-        // опционально можно добавить:
-        // budget: 1000000,
-        // max_badges: 0,
-        // lock_policy: "soft",
       };
 
-      // ВАЖНО: именно /leagues/ (со слэшем) для POST
       const created = await apiPostPublic("/leagues/", body);
 
       const leagueWithMeta = {
@@ -131,6 +132,7 @@ export default function TournamentPage() {
       };
 
       setLeagues((prev) => [...prev, leagueWithMeta]);
+      setLeaguePage(1); // после создания возвращаемся на первую страницу
       loadLadder(leagueWithMeta, 1);
     } catch (e) {
       setErr(String(e.message || e));
@@ -139,7 +141,54 @@ export default function TournamentPage() {
     }
   };
 
+  // Копирование ссылки на лигу
+  const handleCopyLeagueLink = (leagueId, e) => {
+    if (e) e.stopPropagation();
+
+    const url = `${window.location.origin}/draft/${leagueId}`;
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard
+        .writeText(url)
+        .then(() => {
+          alert("League link copied to clipboard:\n" + url);
+        })
+        .catch(() => {
+          window.prompt("League link:", url);
+        });
+    } else {
+      window.prompt("League link:", url);
+    }
+  };
+
+  // ====== сортировка и пагинация лиг ======
   const hasLeagues = leagues && leagues.length > 0;
+
+  let sortedLeagues = [];
+  let leaguesTotalPages = 1;
+  let currentLeaguePage = leaguePage;
+  let pagedLeagues = [];
+
+  if (hasLeagues) {
+    // сортировка по количеству игроков (по убыванию)
+    sortedLeagues = [...leagues].sort((a, b) => {
+      const ac = a.participants_count ?? 0;
+      const bc = b.participants_count ?? 0;
+      if (bc !== ac) return bc - ac; // больше игроков — выше
+      // вторичная сортировка, чтобы был стабильный порядок
+      return (a.id ?? 0) - (b.id ?? 0);
+    });
+
+    leaguesTotalPages = Math.max(1, Math.ceil(sortedLeagues.length / LEAGUES_PER_PAGE));
+    if (currentLeaguePage > leaguesTotalPages) {
+      currentLeaguePage = leaguesTotalPages;
+    } else if (currentLeaguePage < 1) {
+      currentLeaguePage = 1;
+    }
+
+    const start = (currentLeaguePage - 1) * LEAGUES_PER_PAGE;
+    pagedLeagues = sortedLeagues.slice(start, start + LEAGUES_PER_PAGE);
+  }
 
   return (
     <div className="min-h-screen bg-black text-white p-6">
@@ -179,7 +228,7 @@ export default function TournamentPage() {
               )}
 
               {hasLeagues &&
-                leagues.map((lg) => {
+                pagedLeagues.map((lg) => {
                   const isSelected =
                     selectedLeague && selectedLeague.id === lg.id;
                   return (
@@ -198,10 +247,21 @@ export default function TournamentPage() {
                           {lg.name}
                         </h3>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
                           <span className="text-xs text-zinc-400">
                             Players: {lg.participants_count ?? 0}
                           </span>
+
+                          {/* COPY LINK */}
+                          <button
+                            type="button"
+                            className="px-2 py-1 text-[11px] rounded-lg border border-emerald-500/70 text-emerald-300 hover:bg-emerald-500/10"
+                            onClick={(e) => handleCopyLeagueLink(lg.id, e)}
+                          >
+                            Copy link
+                          </button>
+
+                          {/* JOIN */}
                           <button
                             type="button"
                             className="px-3 py-1 text-xs rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-semibold"
@@ -225,6 +285,37 @@ export default function TournamentPage() {
                     </div>
                   );
                 })}
+
+              {/* Пагинация лиг */}
+              {hasLeagues && leaguesTotalPages > 1 && (
+                <div className="flex items-center justify-between mt-2 text-xs text-zinc-300">
+                  <button
+                    type="button"
+                    className="px-3 py-1 rounded border border-white/20 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={() =>
+                      setLeaguePage((p) => (p > 1 ? p - 1 : 1))
+                    }
+                    disabled={currentLeaguePage <= 1}
+                  >
+                    Prev
+                  </button>
+                  <span>
+                    Page {currentLeaguePage} / {leaguesTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="px-3 py-1 rounded border border-white/20 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={() =>
+                      setLeaguePage((p) =>
+                        p < leaguesTotalPages ? p + 1 : leaguesTotalPages
+                      )
+                    }
+                    disabled={currentLeaguePage >= leaguesTotalPages}
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* ПРАВАЯ КОЛОНКА — ladder */}
@@ -245,6 +336,15 @@ export default function TournamentPage() {
                       <p className="text-xs text-zinc-400">
                         Tournament: {tournament?.name || "-"}
                       </p>
+                      <button
+                        type="button"
+                        className="mt-1 text-[11px] text-emerald-300 underline-offset-2 hover:underline"
+                        onClick={(e) =>
+                          handleCopyLeagueLink(selectedLeague.id, e)
+                        }
+                      >
+                        Copy league link
+                      </button>
                     </div>
 
                     {pagination && (
@@ -256,7 +356,9 @@ export default function TournamentPage() {
                             loadLadder(selectedLeague, ladderPage - 1)
                           }
                           disabled={
-                            ladderLoading || !pagination.has_prev || ladderPage <= 1
+                            ladderLoading ||
+                            !pagination.has_prev ||
+                            ladderPage <= 1
                           }
                         >
                           Prev
@@ -318,7 +420,7 @@ export default function TournamentPage() {
                             <div className="text-zinc-400">
                               Pts:{" "}
                               <span className="font-semibold">
-                                {row.total_points.toFixed
+                                {row.total_points?.toFixed
                                   ? row.total_points.toFixed(2)
                                   : row.total_points}
                               </span>
@@ -372,7 +474,7 @@ export default function TournamentPage() {
                         key={p.player_id ?? idx}
                         className="flex flex-col justify-between bg-black/40 rounded-lg px-3 py-2 text-xs"
                       >
-                        <div className="flex items-center justify-between mb-1 gap-2">
+                        <div className="flex items-center justify между mb-1 gap-2">
                           <span className="text-[10px] text-zinc-500">
                             #{idx + 1}
                           </span>

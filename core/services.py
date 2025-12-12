@@ -55,14 +55,14 @@ def generate_market_prices_for_tournament(
     budget: int = 1_000_000,
     slots: int = 5,
     use_days_window: int = 90,
-    weight_rating: float = 0.45,
-    weight_kdr: float = 0.20,  # теперь используется как вес kills_per_round
-    weight_adr: float = 0.15,
-    weight_fpm: float = 0.15,  # теперь используется как вес clutch_points_per_round (impact)
+    weight_rating: float = 0.5,
+    weight_kdr: float = 0.2,  # kills_per_round
+    weight_adr: float = 0.3,
+    weight_fpm: float = 0.17,  # clutch_points_per_round (impact)
     weight_team: float = 0.15,
     max_rank: int = 50,
     avg_price_mult: float = 1.0,
-    flank_min_mult: float = 0.85,
+    flank_min_mult: float = 0.83,
     flank_max_mult: float = 1.25,
     source_label: str = "AUTO",
 ) -> int:
@@ -77,9 +77,18 @@ def generate_market_prices_for_tournament(
        budget=1_000_000 и slots=5 это будет 200_000);
     - сырые PlayerMapStats и FantasyPoints для цены больше не используются.
 
-    Параметры weight_kdr / weight_fpm переиспользованы:
-    - weight_kdr → вес kills_per_round;
-    - weight_fpm → вес clutch_points_per_round (как прокси "impact").
+    Параметры weight_*:
+    - rating  — основной фактор;
+    - kdr     — kills_per_round;
+    - adr     — damage per round, второй по важности после rating;
+    - fpm     — clutch_points_per_round, вспомогательный импакт;
+    - team    — сила команды по мировому рейтингу.
+
+    ДОПОЛНИТЕЛЬНО:
+    - поверх базовой модели вводится турнирный множитель по силе команды:
+      внутри КОНКРЕТНОГО турнира лучшие команды слегка удорожают игроков,
+      а команды-аутсайдеры заметно удешевляют.
+    - финальная цена округляется до 1000.
     """
     # --- участники турнира
     team_ids = list(_team_ids_for_tournament(tournament_id))
@@ -96,6 +105,52 @@ def generate_market_prices_for_tournament(
     if not players:
         return 0
 
+    # >>> NEW: турнирные множители по силе команды <<<
+    def _build_tournament_team_multipliers(players_list):
+        """
+        Строим {team_id: mult} на основе распределения world_rank
+        среди команд ЭТОГО турнира.
+
+        Лучшая команда получает небольшой бонус,
+        худшая — заметный штраф.
+        """
+        team_world_ranks: dict[int, int] = {}
+        for pl in players_list:
+            team = pl.team
+            wr = getattr(team, "world_rank", None)
+            if wr is None:
+                continue
+            tid = team.id
+            if tid not in team_world_ranks or wr < team_world_ranks[tid]:
+                team_world_ranks[tid] = wr
+
+        if not team_world_ranks:
+            return {}
+
+        sorted_items = sorted(team_world_ranks.items(), key=lambda kv: kv[1])
+        k = len(sorted_items)
+        if k == 1:
+            return {sorted_items[0][0]: 1.0}
+
+        # топы чуть дороже, аутсайдеры сильно дешевле
+        HIGH_MULT = 1.0  # максимальный бонус за топ-1 турнира
+        LOW_MULT = 0.95   # максимальный штраф за последнюю команду
+        CURVE_GAMMA = 2.0  # >1 => сильнее штрафует низ, мягче бустит верх
+
+        res: dict[int, float] = {}
+        for pos, (team_id, _wr) in enumerate(sorted_items):
+            # strength: 1.0 — лучшая команда, 0.0 — худшая
+            strength = 1.0 - (pos / (k - 1))
+            # изгибаем кривую: для слабых команд penalty становится сильнее
+            curved = strength ** CURVE_GAMMA
+            mult = LOW_MULT + (HIGH_MULT - LOW_MULT) * curved
+            res[team_id] = mult
+
+        return res
+
+    tournament_team_mult_by_team_id = _build_tournament_team_multipliers(players)
+    # >>> END NEW <<<
+
     # Собираем метрики только для игроков, у которых есть HLTV-статистика
     metrics: dict[int, dict] = {}
     players_with_stats: set[int] = set()
@@ -107,11 +162,6 @@ def generate_market_prices_for_tournament(
             players_without_stats.add(p.id)
             continue
 
-        # Берём базовые показатели:
-        # - rating2  (Rating 3.0)
-        # - kills_per_round
-        # - adr      (Damage per round)
-        # - clutch_points_per_round как proxy "impact"
         metrics[p.id] = {
             "rating": float(st.rating2) if st.rating2 else None,
             "kdr": float(st.kills_per_round) if st.kills_per_round else None,
@@ -120,11 +170,9 @@ def generate_market_prices_for_tournament(
         }
         players_with_stats.add(p.id)
 
-    # Средняя / дефолтная цена (при дефолтных параметрах == 200_000)
     avg_price = int((budget / slots) * avg_price_mult)
     default_price = avg_price
 
-    # Если вообще ни у кого нет HLTV-статистики — всем дефолт
     if not players_with_stats:
         upserts = 0
         for p in players:
@@ -140,7 +188,6 @@ def generate_market_prices_for_tournament(
             upserts += 1
         return upserts
 
-    # Функции нормализации считаем только по тем, у кого есть HLTV-метрики
     def collect_clean(key: str):
         vals = []
         for pid in players_with_stats:
@@ -151,7 +198,6 @@ def generate_market_prices_for_tournament(
 
     def norm_func(vals):
         if not vals:
-            # если совсем нет значений по этому параметру, считаем его нейтральным (0.5)
             return (lambda _x: 0.5), 0.0, 0.0
         vmin, vmax = min(vals), max(vals)
         if vmax - vmin < 1e-9:
@@ -169,9 +215,10 @@ def generate_market_prices_for_tournament(
     norm_adr, amin, amax = norm_func(collect_clean("adr"))
     norm_fpm, fmin, fmax = norm_func(collect_clean("fpm"))
 
-    # скоринг — считаем только для игроков со статистикой
     score_by_player: dict[int, float] = {}
     team_factor_by_player: dict[int, float] = {}
+    tournament_team_factor_by_player: dict[int, float] = {}
+
     for p in players:
         if p.id not in players_with_stats:
             continue
@@ -192,9 +239,11 @@ def generate_market_prices_for_tournament(
         )
         score_by_player[p.id] = S
         team_factor_by_player[p.id] = tf
+        tournament_team_factor_by_player[p.id] = tournament_team_mult_by_team_id.get(
+            p.team_id, 1.0
+        )
 
     if not score_by_player:
-        # Теоретически возможно, если все показатели None → ставим дефолт
         upserts = 0
         for p in players:
             PlayerPrice.objects.update_or_create(
@@ -217,7 +266,6 @@ def generate_market_prices_for_tournament(
 
     upserts = 0
 
-    # Если все S одинаковые — даём всем одинаковую цену для игроков со статистикой.
     if Smax - Smin < 1e-9:
         for p in players:
             if p.id in players_with_stats:
@@ -234,6 +282,7 @@ def generate_market_prices_for_tournament(
                             "adr": metrics[p.id].get("adr"),
                             "fpm": metrics[p.id].get("fpm"),
                             "team_factor": team_factor_by_player.get(p.id),
+                            "tournament_team_factor": tournament_team_factor_by_player.get(p.id),
                         },
                     },
                 )
@@ -258,7 +307,14 @@ def generate_market_prices_for_tournament(
     for p in players:
         if p.id in players_with_stats:
             S = score_by_player[p.id]
-            price = int(round(alpha + beta * S))
+            base_price = alpha + beta * S
+
+            extra_mult = tournament_team_factor_by_player.get(p.id, 1.0)
+            raw_price = base_price * extra_mult
+
+            # округляем до 1000
+            price = int(round(raw_price / 1000.0) * 1000)
+
             PlayerPrice.objects.update_or_create(
                 tournament_id=tournament_id,
                 player_id=p.id,
@@ -271,6 +327,7 @@ def generate_market_prices_for_tournament(
                         "adr": metrics[p.id].get("adr"),
                         "fpm": metrics[p.id].get("fpm"),
                         "team_factor": team_factor_by_player.get(p.id),
+                        "tournament_team_factor": tournament_team_factor_by_player.get(p.id),
                         "S": S,
                         "alpha": alpha,
                         "beta": beta,
@@ -309,7 +366,6 @@ def generate_market_prices_for_tournament(
             upserts += 1
 
     return upserts
-
 
 # =================== draft logic ===================
 

@@ -1,5 +1,6 @@
 ﻿from math import ceil
 
+from django.db import transaction
 from django.db.models.functions import Coalesce
 from rest_framework import viewsets, generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
@@ -188,17 +189,29 @@ class AdminRecalcView(APIView):
 
 # MARKET GENERATION
 class MarketGenerateView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminUser]
 
-    def post(self, request):
-        tid = request.data.get("tournament")
-        budget = request.data.get("budget", 1000000)
-        slots = request.data.get("slots", 5)
-        if not tid:
-            return Response({"error": "tournament required"}, status=400)
-        generate_market_prices_for_tournament(int(tid), budget=budget, slots=slots)
-        return Response({"status": "market generated"})
+    def post(self, request, *args, **kwargs):
+        tournament_id = request.data.get("tournament") or request.data.get("tournament_id")
+        if not tournament_id:
+            return Response({"detail": "tournament is required"}, status=status.HTTP_400_BAD_REQUEST)
 
+        if not Tournament.objects.filter(id=tournament_id).exists():
+            return Response({"detail": "Tournament not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        budget = int(request.data.get("budget") or 1_000_000)
+        slots = int(request.data.get("slots") or 5)
+
+
+        with transaction.atomic():
+            upserts = generate_market_prices_for_tournament(
+                int(tournament_id),
+                budget=budget,
+                slots=slots,
+                source_label="ADMIN",
+            )
+
+        return Response({"ok": True, "upserts": upserts}, status=status.HTTP_200_OK)
 
 # DRAFT — STATE
 class DraftStateView(APIView):
