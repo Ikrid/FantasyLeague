@@ -191,51 +191,50 @@ export default function TournamentPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white p-6">
-      <Link to="/" className="text-sm text-zinc-300 hover:text-white">
+    <div className="min-h-screen bg-black text-white p-8 text-base">
+      <Link to="/" className="text-base text-zinc-300 hover:text-white">
         ← Back
       </Link>
 
-      <h1 className="text-3xl font-bold mt-3">
+      <h1 className="text-4xl font-bold mt-4">
         {tournament ? tournament.name : "Tournament"}
       </h1>
 
-      {loading && <p className="text-zinc-300 mt-3">Loading leagues…</p>}
-      {err && <p className="text-red-400 mt-3">{err}</p>}
+      {loading && <p className="text-zinc-300 mt-4 text-base">Loading leagues…</p>}
+      {err && <p className="text-red-400 mt-4 text-base">{err}</p>}
 
       {!loading && !err && (
         <>
           {/* ВЕРХ: слева лиги, справа ladder */}
-          <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
+          <div className="mt-6 grid gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
             {/* ЛЕВАЯ КОЛОНКА — лиги */}
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-zinc-300">
+                <h2 className="text-base font-semibold text-zinc-200">
                   Leagues for this tournament
                 </h2>
                 <button
                   type="button"
                   onClick={handleCreateLeague}
                   disabled={creating}
-                  className="px-3 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-xs font-semibold text-black"
+                  className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 disabled:cursor-not-allowed text-sm font-semibold text-black"
                 >
                   {creating ? "Creating…" : "Create league"}
                 </button>
               </div>
 
               {!hasLeagues && (
-                <p className="text-zinc-300 mt-1">No leagues yet.</p>
+                <p className="text-zinc-300 mt-2 text-base">No leagues yet.</p>
               )}
 
               {hasLeagues &&
                 pagedLeagues.map((lg) => {
-                  const isSelected =
-                    selectedLeague && selectedLeague.id === lg.id;
+                  const isSelected = selectedLeague && selectedLeague.id === lg.id;
                   return (
                     <div
                       key={lg.id}
                       className={
-                        "rounded-xl border p-3 cursor-pointer transition " +
+                        "rounded-2xl border p-4 cursor-pointer transition " +
                         (isSelected
                           ? "border-emerald-400 bg-emerald-400/10"
                           : "border-white/10 bg-white/5 hover:bg-white/10")
@@ -243,19 +242,17 @@ export default function TournamentPage() {
                       onClick={() => loadLadder(lg, 1)}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-lg font-semibold truncate">
-                          {lg.name}
-                        </h3>
+                        <h3 className="text-xl font-semibold truncate">{lg.name}</h3>
 
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-zinc-400">
+                          <span className="text-sm text-zinc-300">
                             Players: {lg.participants_count ?? 0}
                           </span>
 
                           {/* COPY LINK */}
                           <button
                             type="button"
-                            className="px-2 py-1 text-[11px] rounded-lg border border-emerald-500/70 text-emerald-300 hover:bg-emerald-500/10"
+                            className="px-3 py-2 text-sm rounded-xl border border-emerald-500/70 text-emerald-300 hover:bg-emerald-500/10"
                             onClick={(e) => handleCopyLeagueLink(lg.id, e)}
                           >
                             Copy link
@@ -264,7 +261,7 @@ export default function TournamentPage() {
                           {/* JOIN */}
                           <button
                             type="button"
-                            className="px-3 py-1 text-xs rounded-lg bg-emerald-500 hover:bg-emerald-400 text-black font-semibold"
+                            className="px-4 py-2 text-sm rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-semibold"
                             onClick={(e) => {
                               e.stopPropagation();
                               navigate(`/draft/${lg.id}`);
@@ -275,12 +272,12 @@ export default function TournamentPage() {
                         </div>
                       </div>
 
-                      <p className="mt-1 text-xs text-zinc-400">
+                      <p className="mt-2 text-sm text-zinc-300">
                         Tournament: {tournament?.name || "-"}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-zinc-500">
-                        Budget: {lg.budget?.toLocaleString?.() ?? lg.budget} •
-                        Max badges: {lg.max_badges ?? 0}
+                      <p className="mt-1 text-xs text-zinc-400">
+                        Budget: {lg.budget?.toLocaleString?.() ?? lg.budget} • Max badges:{" "}
+                        {lg.max_badges ?? 0}
                       </p>
                     </div>
                   );
@@ -288,13 +285,11 @@ export default function TournamentPage() {
 
               {/* Пагинация лиг */}
               {hasLeagues && leaguesTotalPages > 1 && (
-                <div className="flex items-center justify-between mt-2 text-xs text-zinc-300">
+                <div className="flex items-center justify-between mt-3 text-sm text-zinc-200">
                   <button
                     type="button"
-                    className="px-3 py-1 rounded border border-white/20 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                    onClick={() =>
-                      setLeaguePage((p) => (p > 1 ? p - 1 : 1))
-                    }
+                    className="px-4 py-2 rounded-xl border border-white/20 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                    onClick={() => setLeaguePage((p) => (p > 1 ? p - 1 : 1))}
                     disabled={currentLeaguePage <= 1}
                   >
                     Prev
@@ -304,11 +299,9 @@ export default function TournamentPage() {
                   </span>
                   <button
                     type="button"
-                    className="px-3 py-1 rounded border border-white/20 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="px-4 py-2 rounded-xl border border-white/20 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
                     onClick={() =>
-                      setLeaguePage((p) =>
-                        p < leaguesTotalPages ? p + 1 : leaguesTotalPages
-                      )
+                      setLeaguePage((p) => (p < leaguesTotalPages ? p + 1 : leaguesTotalPages))
                     }
                     disabled={currentLeaguePage >= leaguesTotalPages}
                   >
@@ -319,9 +312,9 @@ export default function TournamentPage() {
             </div>
 
             {/* ПРАВАЯ КОЛОНКА — ladder */}
-            <div className="border border-white/10 rounded-xl p-4 bg-white/5 min-h-[220px]">
+            <div className="border border-white/10 rounded-2xl p-5 bg-white/5 min-h-[240px]">
               {!selectedLeague && (
-                <p className="text-zinc-300">
+                <p className="text-zinc-300 text-base">
                   Choose a league on the left to see its ladder.
                 </p>
               )}
@@ -330,36 +323,24 @@ export default function TournamentPage() {
                 <>
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h2 className="text-lg font-semibold">
-                        Ladder: {selectedLeague.name}
-                      </h2>
-                      <p className="text-xs text-zinc-400">
-                        Tournament: {tournament?.name || "-"}
-                      </p>
+                      <h2 className="text-xl font-semibold">Ladder: {selectedLeague.name}</h2>
+                      <p className="text-sm text-zinc-300">Tournament: {tournament?.name || "-"}</p>
                       <button
                         type="button"
-                        className="mt-1 text-[11px] text-emerald-300 underline-offset-2 hover:underline"
-                        onClick={(e) =>
-                          handleCopyLeagueLink(selectedLeague.id, e)
-                        }
+                        className="mt-2 text-sm text-emerald-300 underline-offset-4 hover:underline"
+                        onClick={(e) => handleCopyLeagueLink(selectedLeague.id, e)}
                       >
                         Copy league link
                       </button>
                     </div>
 
                     {pagination && (
-                      <div className="flex items-center gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-sm">
                         <button
                           type="button"
-                          className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                          onClick={() =>
-                            loadLadder(selectedLeague, ladderPage - 1)
-                          }
-                          disabled={
-                            ladderLoading ||
-                            !pagination.has_prev ||
-                            ladderPage <= 1
-                          }
+                          className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                          onClick={() => loadLadder(selectedLeague, ladderPage - 1)}
+                          disabled={ladderLoading || !pagination.has_prev || ladderPage <= 1}
                         >
                           Prev
                         </button>
@@ -368,10 +349,8 @@ export default function TournamentPage() {
                         </span>
                         <button
                           type="button"
-                          className="px-2 py-1 rounded bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed"
-                          onClick={() =>
-                            loadLadder(selectedLeague, ladderPage + 1)
-                          }
+                          className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 disabled:opacity-40 disabled:cursor-not-allowed text-sm"
+                          onClick={() => loadLadder(selectedLeague, ladderPage + 1)}
                           disabled={ladderLoading || !pagination.has_next}
                         >
                           Next
@@ -380,43 +359,31 @@ export default function TournamentPage() {
                     )}
                   </div>
 
-                  {ladderLoading && (
-                    <p className="text-zinc-300 text-sm">Loading ladder…</p>
-                  )}
+                  {ladderLoading && <p className="text-zinc-300 text-base">Loading ladder…</p>}
 
-                  {ladderErr && (
-                    <p className="text-red-400 text-sm">Error: {ladderErr}</p>
-                  )}
+                  {ladderErr && <p className="text-red-400 text-base">Error: {ladderErr}</p>}
 
                   {!ladderLoading && !ladderErr && ladder.length === 0 && (
-                    <p className="text-zinc-400 text-sm">
-                      No fantasy teams in this league yet.
-                    </p>
+                    <p className="text-zinc-400 text-base">No fantasy teams in this league yet.</p>
                   )}
 
                   {!ladderLoading && !ladderErr && ladder.length > 0 && (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       {ladder.map((row) => (
                         <div
                           key={row.fantasy_team_id}
-                          className="flex items-center justify-between rounded-lg bg-black/40 px-3 py-2 text-sm"
+                          className="flex items-center justify-between rounded-2xl bg-black/40 px-4 py-3 text-base"
                         >
                           <div className="flex items-center gap-3">
-                            <span className="w-6 text-xs text-zinc-400">
-                              #{row.rank}
-                            </span>
+                            <span className="w-8 text-sm text-zinc-400">#{row.rank}</span>
                             <div>
-                              <div className="font-semibold">
-                                {row.team_name}
-                              </div>
+                              <div className="font-semibold">{row.team_name}</div>
                               {row.user_name && (
-                                <div className="text-[11px] text-zinc-500">
-                                  {row.user_name}
-                                </div>
+                                <div className="text-sm text-zinc-500">{row.user_name}</div>
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-4 text-xs">
+                          <div className="flex items-center gap-5 text-sm">
                             <div className="text-zinc-400">
                               Pts:{" "}
                               <span className="font-semibold">
@@ -426,16 +393,10 @@ export default function TournamentPage() {
                               </span>
                             </div>
                             <div className="text-zinc-400">
-                              Roster:{" "}
-                              <span className="font-semibold">
-                                {row.roster_size}
-                              </span>
+                              Roster: <span className="font-semibold">{row.roster_size}</span>
                             </div>
                             <div className="text-zinc-400">
-                              Budget left:{" "}
-                              <span className="font-semibold">
-                                {row.budget_left}
-                              </span>
+                              Budget left: <span className="font-semibold">{row.budget_left}</span>
                             </div>
                           </div>
                         </div>
@@ -448,53 +409,48 @@ export default function TournamentPage() {
           </div>
 
           {/* НИЖНИЙ БЛОК — топ игроков турнира */}
-          <div className="mt-4 border border-white/10 rounded-xl p-4 bg-white/5">
-            <h3 className="text-sm font-semibold mb-3">
-              Most picked players in this tournament
-            </h3>
+ <div className="mt-6 border border-white/10 rounded-2xl p-6 bg-white/5">
+  <h3 className="text-2xl font-bold text-center mb-6">
+    Most Picked Players
+  </h3>
 
-            {topPlayersLoading && (
-              <p className="text-xs text-zinc-300">Loading…</p>
-            )}
+  {topPlayersLoading && (
+    <p className="text-base text-zinc-300 text-center">Loading…</p>
+  )}
 
-            {topPlayersErr && (
-              <p className="text-xs text-red-400">Error: {topPlayersErr}</p>
-            )}
+  {topPlayersErr && (
+    <p className="text-base text-red-400 text-center">Error: {topPlayersErr}</p>
+  )}
 
-            {!topPlayersLoading && !topPlayersErr && (
-              <>
-                {topPlayers.length === 0 ? (
-                  <p className="text-xs text-zinc-400">
-                    No players picked yet in this tournament.
-                  </p>
-                ) : (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    {topPlayers.map((p, idx) => (
-                      <div
-                        key={p.player_id ?? idx}
-                        className="flex flex-col justify-between bg-black/40 rounded-lg px-3 py-2 text-xs"
-                      >
-                        <div className="flex items-center justify между mb-1 gap-2">
-                          <span className="text-[10px] text-zinc-500">
-                            #{idx + 1}
-                          </span>
-                          <span className="font-medium truncate">
-                            {p.player_name || `Player ${p.player_id}`}
-                          </span>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] text-zinc-300">
-                          <span>Picks:</span>
-                          <span className="font-semibold">
-                            {p.picks_count}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+  {!topPlayersLoading && !topPlayersErr && (
+    <>
+      {topPlayers.length === 0 ? (
+        <p className="text-base text-zinc-300 text-center">
+          No players picked yet in this tournament.
+        </p>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {topPlayers.map((p, idx) => (
+            <div
+              key={p.player_id ?? idx}
+              className="bg-black/40 rounded-2xl px-5 py-5 text-center"
+            >
+              <div className="text-xs text-zinc-500 mb-2">#{idx + 1}</div>
+
+              <div className="text-2xl font-extrabold tracking-wide truncate">
+                {p.player_name || `Player ${p.player_id}`}
+              </div>
+
+              <div className="mt-3 text-lg text-zinc-300">
+                Count: <span className="font-semibold">{p.picks_count}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  )}
+</div>
         </>
       )}
     </div>
