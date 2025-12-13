@@ -19,6 +19,7 @@ async function apiGet(path, needsAuth = true) {
     throw new Error(d?.detail || d?.error || `GET ${path}: ${r.status}`);
   return d;
 }
+
 async function apiPost(path, body) {
   const r = await fetch(`${BASE_URL}${path}`, {
     method: "POST",
@@ -42,7 +43,10 @@ function Button({
   const base =
     variant === "ghost"
       ? "bg-transparent text-white hover:bg-white/10"
+      : variant === "danger"
+      ? "bg-red-600 text-white hover:bg-red-500"
       : "bg-white text-black hover:bg-zinc-200";
+
   const dis = disabled ? "opacity-50 cursor-not-allowed hover:none" : "";
   return (
     <button
@@ -55,6 +59,7 @@ function Button({
     </button>
   );
 }
+
 function Pill({ children }) {
   return (
     <span className="text-xs px-2 py-1 rounded-full bg-white/10">
@@ -62,6 +67,7 @@ function Pill({ children }) {
     </span>
   );
 }
+
 function Modal({ open, onClose, title, children, footer }) {
   if (!open) return null;
   return (
@@ -80,6 +86,7 @@ function Modal({ open, onClose, title, children, footer }) {
     </div>
   );
 }
+
 function InfoTile({ label, value, sub }) {
   return (
     <div className="rounded-lg bg-black/40 border border-white/10 p-3">
@@ -127,8 +134,11 @@ export default function DraftPage() {
   }, [leagueId]);
 
   /* ===== CONDITIONS ===== */
-  const started = state?.started === true;
-  const finished = state?.locked === true; // when tournament ended
+  const started = state?.started === true; // draft disabled (roster locked OR tournament started OR finished)
+  const finished = state?.locked === true; // tournament finished
+
+  const rosterLocked = state?.roster_locked === true;
+  const canUnlock = state?.can_unlock === true;
 
   const roster = state?.roster || [];
   const budgetLeft = state?.fantasy_team?.budget_left ?? 0;
@@ -140,6 +150,8 @@ export default function DraftPage() {
 
   const rosterCount = roster.length;
   const canBuyMore = !started && !finished && rosterCount < maxSlots;
+
+  const canLockRoster = !finished && !rosterLocked && rosterCount === maxSlots;
 
   const totalFantasyPoints = roster.reduce(
     (sum, r) => sum + (r?.fantasy_pts || 0),
@@ -215,9 +227,9 @@ export default function DraftPage() {
     }
   }
 
-  /* ===== SELL logic (hidden if finished) ===== */
+  /* ===== SELL logic ===== */
   async function doSell(p) {
-    if (finished) return; // disabled
+    if (finished || started) return;
     try {
       await apiPost("/draft/sell", {
         league_id: Number(leagueId),
@@ -229,9 +241,50 @@ export default function DraftPage() {
     }
   }
 
+  /* ===== LOCK/UNLOCK ROSTER ===== */
+  async function doLockRoster() {
+    if (!canLockRoster) return;
+    const ok = window.confirm(
+      `Lock roster? You must have exactly ${maxSlots} players. After locking you can’t buy/sell anymore.`
+    );
+    if (!ok) return;
+
+    try {
+      await apiPost("/draft/lock", { league_id: Number(leagueId) });
+      await load();
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+  }
+
+  async function doUnlockRoster() {
+    if (!rosterLocked || !canUnlock) return;
+    const ok = window.confirm(
+      "Unlock roster? You will be able to buy/sell again (only if tournament hasn’t started)."
+    );
+    if (!ok) return;
+
+    try {
+      await apiPost("/draft/unlock", { league_id: Number(leagueId) });
+      await load();
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+  }
+
+  const actionDisabled = finished
+    ? true
+    : rosterLocked
+    ? !canUnlock
+    : !canLockRoster;
+
+  const actionLabel = rosterLocked ? "Unlock" : "Lock";
+
+  const actionOnClick = rosterLocked ? doUnlockRoster : doLockRoster;
+
   /* ===== MODAL STATS ===== */
   async function openPlayerModal(p) {
-    if (finished) return; // modal disabled
+    if (finished) return;
     setSelected(p);
     setStat(null);
     setStatErr("");
@@ -272,6 +325,7 @@ export default function DraftPage() {
           </Pill>
           <Pill>Max per team: {maxPerTeam}</Pill>
           <Pill>Total fantasy: {totalFantasyPoints.toLocaleString()}</Pill>
+
           {started && !finished && <Pill>Locked</Pill>}
         </div>
 
@@ -315,7 +369,7 @@ export default function DraftPage() {
               return (
                 <div
                   key={i}
-                  className="rounded-2xl border border-white/10 p-4 bg:white/5 bg-white/5 h-full"
+                  className="rounded-2xl border border-white/10 p-4 bg-white/5 h-full"
                 >
                   {!r ? (
                     <div className="h-full flex flex-col items-center justify-center text-zinc-400">
@@ -345,7 +399,6 @@ export default function DraftPage() {
                         </div>
                       </div>
 
-                      {/* SELL hidden if finished */}
                       {!finished && (
                         <div className="mt-3">
                           <Button
@@ -366,6 +419,20 @@ export default function DraftPage() {
               );
             })}
           </div>
+
+          {/* ===== BIG ACTION BUTTON (RIGHT SIDE, LIKE YOUR RED BOX) ===== */}
+     {!finished && (
+  <div className="mt-6 flex justify-end">
+    <Button
+      onClick={actionOnClick}
+      disabled={actionDisabled}
+      variant={rosterLocked ? "danger" : "primary"}
+      className="px-8 py-3 text-lg rounded-2xl shadow-md"
+    >
+      {actionLabel}
+    </Button>
+  </div>
+          )}
         </section>
 
         {/* === MARKET HIDDEN WHEN FINISHED === */}
@@ -377,7 +444,6 @@ export default function DraftPage() {
               <div className="space-y-6 mt-2">
                 {marketByTeam.map((group) => (
                   <div key={group.key}>
-                    {/* Заголовок команды + её место в рейтинге */}
                     <div className="flex items-baseline justify-between mb-2">
                       <div className="text-sm font-semibold">
                         {group.teamName}
@@ -389,7 +455,6 @@ export default function DraftPage() {
                       </div>
                     </div>
 
-                    {/* Игроки этой команды */}
                     <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                       {group.players.map((p) => {
                         const owned = roster.some(
@@ -399,14 +464,13 @@ export default function DraftPage() {
                         return (
                           <div
                             key={p.player_id}
-                            className={`rounded-2xl border border:white/10 border-white/10 bg:white/5 bg-white/5 p-4 transition hover:bg:white/10 hover:bg-white/10 ${
+                            className={`rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10 ${
                               !disabled ? "cursor-pointer" : "opacity-90"
                             }`}
                             onClick={() => openPlayerModal(p)}
                           >
                             <div className="flex items-start justify-between gap-3">
                               <div>
-                                {/* Убрали отображение названия команды на карточке */}
                                 <div className="text-lg font-semibold">
                                   {p.player_name}
                                 </div>
@@ -501,9 +565,7 @@ export default function DraftPage() {
                     <span className="text-xs text-zinc-400">Loading…</span>
                   )}
                 </div>
-                {statErr && (
-                  <p className="text-sm text-red-400">{statErr}</p>
-                )}
+                {statErr && <p className="text-sm text-red-400">{statErr}</p>}
                 {!statLoading && !stat && (
                   <p className="text-sm text-zinc-300">No data.</p>
                 )}
@@ -547,18 +609,14 @@ export default function DraftPage() {
                       <InfoTile
                         label="ADR"
                         value={
-                          stat.adr != null
-                            ? Number(stat.adr).toFixed(1)
-                            : "—"
+                          stat.adr != null ? Number(stat.adr).toFixed(1) : "—"
                         }
                       />
                       <InfoTile
                         label="Opening kills / round"
                         value={
                           stat.opening_kills_per_round != null
-                            ? Number(
-                                stat.opening_kills_per_round
-                              ).toFixed(3)
+                            ? Number(stat.opening_kills_per_round).toFixed(3)
                             : "—"
                         }
                       />
@@ -566,9 +624,7 @@ export default function DraftPage() {
                         label="Opening deaths / round"
                         value={
                           stat.opening_deaths_per_round != null
-                            ? Number(
-                                stat.opening_deaths_per_round
-                              ).toFixed(3)
+                            ? Number(stat.opening_deaths_per_round).toFixed(3)
                             : "—"
                         }
                       />
@@ -576,9 +632,7 @@ export default function DraftPage() {
                         label="Win% after opening kill"
                         value={
                           stat.win_after_opening != null
-                            ? `${Number(
-                                stat.win_after_opening
-                              ).toFixed(1)}%`
+                            ? `${Number(stat.win_after_opening).toFixed(1)}%`
                             : "—"
                         }
                       />
@@ -586,9 +640,7 @@ export default function DraftPage() {
                         label="Multi-kill rounds"
                         value={
                           stat.multikill_rounds_pct != null
-                            ? `${Number(
-                                stat.multikill_rounds_pct
-                              ).toFixed(1)}%`
+                            ? `${Number(stat.multikill_rounds_pct).toFixed(1)}%`
                             : "—"
                         }
                       />
@@ -596,9 +648,7 @@ export default function DraftPage() {
                         label="Clutch points / round"
                         value={
                           stat.clutch_points_per_round != null
-                            ? Number(
-                                stat.clutch_points_per_round
-                              ).toFixed(3)
+                            ? Number(stat.clutch_points_per_round).toFixed(3)
                             : "—"
                         }
                       />
@@ -606,9 +656,7 @@ export default function DraftPage() {
                         label="Sniper kills / round"
                         value={
                           stat.sniper_kills_per_round != null
-                            ? Number(
-                                stat.sniper_kills_per_round
-                              ).toFixed(3)
+                            ? Number(stat.sniper_kills_per_round).toFixed(3)
                             : "—"
                         }
                       />
@@ -616,9 +664,7 @@ export default function DraftPage() {
                         label="Utility dmg / round"
                         value={
                           stat.utility_damage_per_round != null
-                            ? Number(
-                                stat.utility_damage_per_round
-                              ).toFixed(1)
+                            ? Number(stat.utility_damage_per_round).toFixed(1)
                             : "—"
                         }
                       />
@@ -626,9 +672,7 @@ export default function DraftPage() {
                         label="Flash assists / round"
                         value={
                           stat.flash_assists_per_round != null
-                            ? Number(
-                                stat.flash_assists_per_round
-                              ).toFixed(3)
+                            ? Number(stat.flash_assists_per_round).toFixed(3)
                             : "—"
                         }
                       />

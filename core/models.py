@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from datetime import date
-
+from django.utils import timezone
 
 class Team(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -57,12 +57,23 @@ class League(models.Model):
 
 class FantasyTeam(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    league = models.ForeignKey(League, on_delete=models.CASCADE)
+    league = models.ForeignKey("League", on_delete=models.CASCADE)
     user_name = models.CharField(max_length=64)
     budget_left = models.IntegerField(default=0)
 
+    # ✅ NEW: блокировка ростера
+    roster_locked = models.BooleanField(default=False)
+    locked_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         unique_together = (("user", "league"),)
+
+    def lock_roster(self):
+        """Удобный метод, можно вызывать из view."""
+        if not self.roster_locked:
+            self.roster_locked = True
+            self.locked_at = timezone.now()
+            self.save(update_fields=["roster_locked", "locked_at"])
 
     def __str__(self):
         return f"{self.user_name} @ {self.league.name}"

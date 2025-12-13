@@ -7,6 +7,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.db.models import Sum, Count
+from django.utils import timezone
 import re
 
 from .hltv_tournament_scraper import import_tournament_full
@@ -25,6 +26,19 @@ from .services import (
     handle_draft_sell,
     get_player_summary,
 )
+
+
+def _tournament_started(tournament) -> bool:
+    """
+    Турнир считаем начавшимся, если есть хотя бы 1 матч со start_time <= now.
+    Это нужно, чтобы запретить Unlock/изменения ростера после старта.
+    """
+    if not tournament:
+        return False
+    return Match.objects.filter(
+        tournament=tournament,
+        start_time__lte=timezone.now()
+    ).exists()
 
 
 # TEAM
@@ -202,7 +216,6 @@ class MarketGenerateView(APIView):
         budget = int(request.data.get("budget") or 1_000_000)
         slots = int(request.data.get("slots") or 5)
 
-
         with transaction.atomic():
             upserts = generate_market_prices_for_tournament(
                 int(tournament_id),
@@ -213,6 +226,11 @@ class MarketGenerateView(APIView):
 
         return Response({"ok": True, "upserts": upserts}, status=status.HTTP_200_OK)
 
+
+# =========================
+# DRAFT
+# =========================
+
 # DRAFT — STATE
 class DraftStateView(APIView):
     permission_classes = [IsAuthenticated]
@@ -221,13 +239,30 @@ class DraftStateView(APIView):
         user = request.user
         state = get_draft_state(user, league_id)
 
-        # ЛОГИКА АВТО-БЛОКИРОВКИ
         league = League.objects.select_related("tournament").get(id=league_id)
         t = league.tournament
-        t_finished = t.is_finished()
 
+        t_finished = t.is_finished()
+        t_started = _tournament_started(t)
+
+        ft = FantasyTeam.objects.filter(user=user, league=league).first()
+        roster_locked = bool(getattr(ft, "roster_locked", False))
+
+        # draft actions disabled если:
+        # - турнир закончился
+        # - или турнир уже начался
+        # - или пользователь нажал Lock
+        draft_locked = t_finished or t_started or roster_locked
+
+        # "locked" — оставим как "турнир finished" (как у тебя было),
+        # а "started" используем как "драфт запрещён"
         state["locked"] = t_finished
-        state["started"] = t_finished
+        state["started"] = draft_locked
+
+        # доп. флаги для UI
+        state["roster_locked"] = roster_locked
+        state["tournament_started"] = t_started
+        state["can_unlock"] = roster_locked and (not t_started) and (not t_finished)
 
         return Response(state)
 
@@ -241,8 +276,17 @@ class DraftBuyView(APIView):
         league_id = request.data.get("league_id")
 
         league = League.objects.select_related("tournament").get(id=league_id)
-        if league.tournament.is_finished():
+        t = league.tournament
+
+        if t.is_finished():
             return Response({"error": "Tournament is finished. Draft is locked."}, status=403)
+
+        if _tournament_started(t):
+            return Response({"error": "Tournament already started. Draft is locked."}, status=403)
+
+        ft = FantasyTeam.objects.filter(user=user, league=league).first()
+        if ft and getattr(ft, "roster_locked", False):
+            return Response({"error": "Roster is locked. Unlock to edit."}, status=403)
 
         player_id = request.data.get("player_id")
         result = handle_draft_buy(user, league_id, player_id)
@@ -260,14 +304,98 @@ class DraftSellView(APIView):
         league_id = request.data.get("league_id")
 
         league = League.objects.select_related("tournament").get(id=league_id)
-        if league.tournament.is_finished():
+        t = league.tournament
+
+        if t.is_finished():
             return Response({"error": "Tournament is finished. Draft is locked."}, status=403)
+
+        if _tournament_started(t):
+            return Response({"error": "Tournament already started. Draft is locked."}, status=403)
+
+        ft = FantasyTeam.objects.filter(user=user, league=league).first()
+        if ft and getattr(ft, "roster_locked", False):
+            return Response({"error": "Roster is locked. Unlock to edit."}, status=403)
 
         player_id = request.data.get("player_id")
         result = handle_draft_sell(user, league_id, player_id)
         if "error" in result:
             return Response(result, status=400)
         return Response(result)
+
+
+class DraftLockView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        league_id = request.data.get("league_id")
+        if not league_id:
+            return Response({"detail": "league_id is required"}, status=400)
+
+        league = League.objects.get(id=league_id)
+
+        ft, _ = FantasyTeam.objects.get_or_create(
+            user=request.user,
+            league=league,
+            defaults={"user_name": request.user.username, "budget_left": league.budget},
+        )
+
+        if ft.roster_locked:
+            return Response({"ok": True, "roster_locked": True})
+
+        # У тебя в других местах лимит называется max_badges — используем его
+        slots = getattr(league, "max_badges", None) or getattr(league, "slots", None) or 5
+        roster_count = FantasyRoster.objects.filter(fantasy_team=ft).count()
+
+        if roster_count != slots:
+            return Response(
+                {"detail": f"You must select exactly {slots} players to lock (now {roster_count})."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ft.roster_locked = True
+        if hasattr(ft, "locked_at"):
+            ft.locked_at = timezone.now()
+            ft.save(update_fields=["roster_locked", "locked_at"])
+        else:
+            ft.save(update_fields=["roster_locked"])
+
+        return Response({"ok": True, "roster_locked": True})
+
+
+class DraftUnlockView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        league_id = request.data.get("league_id")
+        if not league_id:
+            return Response({"detail": "league_id is required"}, status=400)
+
+        league = League.objects.select_related("tournament").get(id=league_id)
+        t = league.tournament
+
+        if t.is_finished():
+            return Response({"error": "Tournament is finished. Can't unlock."}, status=403)
+
+        if _tournament_started(t):
+            return Response({"error": "Tournament already started. Can't unlock."}, status=403)
+
+        ft, _ = FantasyTeam.objects.get_or_create(
+            user=request.user,
+            league=league,
+            defaults={"user_name": request.user.username, "budget_left": league.budget},
+        )
+
+        if not ft.roster_locked:
+            return Response({"ok": True, "roster_locked": False})
+
+        ft.roster_locked = False
+        if hasattr(ft, "locked_at"):
+            ft.locked_at = None
+            ft.save(update_fields=["roster_locked", "locked_at"])
+        else:
+            ft.save(update_fields=["roster_locked"])
+
+        return Response({"ok": True, "roster_locked": False})
 
 
 # STANDINGS
@@ -433,6 +561,7 @@ class HLTVImportView(APIView):
 
         return Response(result, status=status.HTTP_200_OK)
 
+
 # STANDINGS / LADDER
 class LeagueStandingsView(APIView):
     """
@@ -541,8 +670,6 @@ class LeagueStandingsView(APIView):
             except Tournament.DoesNotExist:
                 return Response({"detail": "Tournament not found"}, status=404)
 
-            # Считаем, сколько раз каждый игрок выбран в FantasyRoster
-            # внутри всех лиг этого турнира
             qs = (
                 FantasyRoster.objects
                 .filter(fantasy_team__league__tournament=tournament)
@@ -560,7 +687,6 @@ class LeagueStandingsView(APIView):
                 player = players_by_id.get(pid)
 
                 if player is not None:
-                    # Пытаемся вытащить более-менее осмысленное имя
                     name = None
                     for attr in ("nickname", "name", "full_name"):
                         if hasattr(player, attr):
@@ -596,14 +722,11 @@ class TournamentTopPlayersView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, tournament_id):
-        # Проверяем, что турнир существует
         try:
             tournament = Tournament.objects.get(pk=tournament_id)
         except Tournament.DoesNotExist:
             return Response({"detail": "Tournament not found"}, status=404)
 
-        # Считаем, сколько раз каждый игрок выбран в FantasyRoster
-        # внутри всех лиг этого турнира
         qs = (
             FantasyRoster.objects
             .filter(fantasy_team__league__tournament=tournament)
@@ -621,7 +744,6 @@ class TournamentTopPlayersView(APIView):
             player = players_by_id.get(pid)
 
             if player is not None:
-                # Пытаемся вытащить более-менее осмысленное имя
                 name = None
                 for attr in ("nickname", "name", "full_name"):
                     if hasattr(player, attr):

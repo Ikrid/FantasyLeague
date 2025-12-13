@@ -8,7 +8,7 @@ from .views import (
     MatchViewSet, MapViewSet, PlayerMapStatsViewSet,
     AdminRecalcView, LeagueStandingsView, TournamentTopPlayersView,
     MarketViewSet, MarketGenerateView,
-    DraftStateView, DraftBuyView, DraftSellView,
+    DraftStateView, DraftBuyView, DraftSellView, DraftLockView, DraftUnlockView,
     RegisterView, MeView,
     PlayerSummaryView, TournamentTeamViewSet,
     MatchPlayersView, HLTVImportView,
@@ -47,6 +47,8 @@ urlpatterns = [
     path("draft/<int:league_id>/state", DraftStateView.as_view()),
     path("draft/buy", DraftBuyView.as_view()),
     path("draft/sell", DraftSellView.as_view()),
+    path("draft/lock", DraftLockView.as_view()),
+    path("draft/unlock", DraftUnlockView.as_view()),
 
     # player summary
     path("player-summary/<int:player_id>/", PlayerSummaryView.as_view()),
