@@ -47,6 +47,42 @@ def _team_factor(rank: Optional[int], max_rank: int = 50) -> float:
     return 1.0 - (r - 1) / max_rank
 
 
+def _model_has_field(model_cls, field_name: str) -> bool:
+    try:
+        return any(f.name == field_name for f in model_cls._meta.get_fields())
+    except Exception:
+        return False
+
+
+def _tournament_started(league: League) -> bool:
+    """
+    Универсальная проверка "турнир начался":
+    1) Если у Tournament есть start_date / start_time / starts_at / start_at — используем.
+    2) Иначе, если у Match есть start_time — проверяем наличие матчей <= now.
+    """
+    t = getattr(league, "tournament", None)
+    if not t:
+        return False
+
+    now = timezone.now()
+
+    # Пытаемся взять дату/время старта турнира, если поле существует
+    for fld in ("start_time", "starts_at", "start_at", "start_date", "starts_on", "start"):
+        if _model_has_field(Tournament, fld):
+            start_val = getattr(t, fld, None)
+            if start_val:
+                # start_val может быть date или datetime
+                try:
+                    return start_val <= now
+                except TypeError:
+                    return start_val <= now.date()
+
+    # Фолбэк по матчам (если есть start_time)
+    if _model_has_field(Match, "start_time"):
+        return Match.objects.filter(tournament=t, start_time__lte=now).exists()
+
+    return False
+
 # =================== advanced market generation ===================
 
 def generate_market_prices_for_tournament(
@@ -369,6 +405,73 @@ def generate_market_prices_for_tournament(
 
 # =================== draft logic ===================
 
+@transaction.atomic
+def handle_draft_lock(user: User, league_id: int) -> Dict[str, Any]:
+    """
+    Lock = подтверждение участия.
+    Требует ровно 5 игроков (или league.slots если есть).
+    После старта турнира lock запрещён.
+    """
+    league = League.objects.select_related("tournament").get(id=league_id)
+    ft, _ = FantasyTeam.objects.get_or_create(
+        user=user,
+        league=league,
+        defaults={"user_name": user.username, "budget_left": league.budget},
+    )
+    ft = FantasyTeam.objects.select_for_update().get(id=ft.id)
+
+    if _tournament_started(league):
+        return {"error": "Tournament already started. You can't lock now."}
+
+    slots = getattr(league, "slots", 5)
+    roster_count = FantasyRoster.objects.filter(fantasy_team=ft).count()
+    if roster_count != slots:
+        return {"error": f"You must select exactly {slots} players to lock (now {roster_count})."}
+
+    ft.roster_locked = True
+    if hasattr(ft, "locked_at"):
+        ft.locked_at = timezone.now()
+        ft.save(update_fields=["roster_locked", "locked_at"])
+    else:
+        ft.save(update_fields=["roster_locked"])
+
+    return {
+        "ok": True,
+        "roster_locked": True,
+        "locked_at": ft.locked_at.isoformat() if getattr(ft, "locked_at", None) else None,
+    }
+
+
+@transaction.atomic
+def handle_draft_unlock(user: User, league_id: int) -> Dict[str, Any]:
+    """
+    Unlock разрешён только ДО старта турнира.
+    При unlock чистим FantasyPoints этой команды, чтобы в ладдере не оставались старые очки.
+    """
+    league = League.objects.select_related("tournament").get(id=league_id)
+    ft, _ = FantasyTeam.objects.get_or_create(
+        user=user,
+        league=league,
+        defaults={"user_name": user.username, "budget_left": league.budget},
+    )
+    ft = FantasyTeam.objects.select_for_update().get(id=ft.id)
+
+    if _tournament_started(league):
+        return {"error": "Tournament already started. You can't unlock roster."}
+
+    # чистим накопленные очки
+    FantasyPoints.objects.filter(fantasy_team=ft).delete()
+
+    ft.roster_locked = False
+    if hasattr(ft, "locked_at"):
+        ft.locked_at = None
+        ft.save(update_fields=["roster_locked", "locked_at"])
+    else:
+        ft.save(update_fields=["roster_locked"])
+
+    return {"ok": True, "roster_locked": False, "locked_at": None}
+
+
 def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
     league = League.objects.select_related("tournament").get(id=league_id)
 
@@ -399,16 +502,28 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             .values_list("player_id", "price")
         )
 
+    # slots / started / lock flags
+    slots = getattr(league, "slots", 5)
+    started = _tournament_started(league)
+    roster_locked = bool(getattr(ft, "roster_locked", False))
+
     # Map: total/avg фэнтези-очков по этому турниру
+    # ✅ ВАЖНО: очки показываем/считаем только если ростер залочен (участник подтверждён)
     total_by_player: Dict[int, float] = {}
     avg_by_player: Dict[int, float] = {}
-    if league.tournament_id and roster_player_ids:
+    if league.tournament_id and roster_player_ids and roster_locked:
         fpts_rows = (
             FantasyPoints.objects
-            .filter(player_id__in=roster_player_ids, map__match__tournament_id=league.tournament_id)
+            .filter(
+                fantasy_team=ft,  # ✅ фикс: только очки этой fantasy-команды
+                player_id__in=roster_player_ids,
+                map__match__tournament_id=league.tournament_id
+            )
             .values("player_id")
-            .annotate(total=Coalesce(Cast(Sum("points"), FloatField()), 0.0),
-                      avg=Coalesce(Cast(Avg("points"), FloatField()), 0.0))
+            .annotate(
+                total=Coalesce(Cast(Sum("points"), FloatField()), 0.0),
+                avg=Coalesce(Cast(Avg("points"), FloatField()), 0.0)
+            )
         )
         for r in fpts_rows:
             pid = r["player_id"]
@@ -421,12 +536,11 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             "player_name": r.player.nickname,
             "team_id": r.player.team_id,
             "team_name": getattr(r.player.team, "name", None),
-            # добавили:
             "price": price_by_player.get(r.player_id),
-            "fantasy_pts": round(total_by_player.get(r.player_id, 0.0), 2)
-                           if r.player_id in total_by_player else None,
-            "fppg": round(avg_by_player.get(r.player_id, 0.0), 2)
-                    if r.player_id in avg_by_player else None,
+
+            # ✅ если не залочен — не участник => очки не показываем
+            "fantasy_pts": round(total_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,
+            "fppg": round(avg_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,
         }
         for r in roster_qs
     ]
@@ -472,9 +586,17 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
 
         "fantasy_team": {"id": ft.id, "budget_left": ft.budget_left},
         "participants": participants_count,
-        "started": False,                         # можно заменить реальной логикой старта турнира
-        "limits": {"slots": 5, "max_per_team": 2},
+
+        "started": started,
+        "roster_locked": roster_locked,
+        "locked_at": ft.locked_at.isoformat() if getattr(ft, "locked_at", None) else None,
+
+        "limits": {"slots": slots, "max_per_team": 2},
         "team_counts": team_counts,
+
+        # удобно для фронта
+        "can_lock": (not started) and (not roster_locked) and (len(roster_player_ids) == slots),
+        "can_unlock": (not started) and roster_locked,
 
         "roster": roster,
         "market": market,
@@ -486,6 +608,11 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
 def handle_draft_buy(user: User, league_id: int, player_id: int) -> Dict[str, Any]:
     league = League.objects.select_related("tournament").get(id=league_id)
     ft = FantasyTeam.objects.select_for_update().get(user=user, league=league)
+
+    # ✅ запрет изменений, если ростер залочен
+    if bool(getattr(ft, "roster_locked", False)):
+        return {"error": "Roster is locked. Unlock to make changes."}
+
     price = PlayerPrice.objects.filter(tournament=league.tournament_id, player_id=player_id).values_list("price", flat=True).first() or 0
     if FantasyRoster.objects.filter(fantasy_team=ft).count() >= 5:
         return {"error": "Roster full"}
@@ -501,6 +628,11 @@ def handle_draft_buy(user: User, league_id: int, player_id: int) -> Dict[str, An
 def handle_draft_sell(user: User, league_id: int, player_id: int) -> Dict[str, Any]:
     league = League.objects.select_related("tournament").get(id=league_id)
     ft = FantasyTeam.objects.select_for_update().get(user=user, league=league)
+
+    # ✅ запрет изменений, если ростер залочен
+    if bool(getattr(ft, "roster_locked", False)):
+        return {"error": "Roster is locked. Unlock to make changes."}
+
     price = PlayerPrice.objects.filter(tournament=league.tournament_id, player_id=player_id).values_list("price", flat=True).first() or 0
     row = FantasyRoster.objects.filter(fantasy_team=ft, player_id=player_id).first()
     if not row:
@@ -550,6 +682,8 @@ def recalc_map(map_id: int) -> int:
     """
     Пересчитать FantasyPoints для одной карты.
     Возвращает количество апсертов в FantasyPoints.
+
+    ✅ ВАЖНО: очки начисляются только roster_locked=True (участники подтвердили Lock).
     """
     game_map = (
         Map.objects
@@ -565,11 +699,14 @@ def recalc_map(map_id: int) -> int:
         .filter(map_id=map_id)
     )
 
-    # Все ростеры лиг этого турнира
+    # Все ростеры лиг этого турнира, но только залоченные команды
     rosters = (
         FantasyRoster.objects
         .select_related("fantasy_team", "fantasy_team__league", "player", "player__team")
-        .filter(fantasy_team__league__tournament_id=tournament_id)
+        .filter(
+            fantasy_team__league__tournament_id=tournament_id,
+            fantasy_team__roster_locked=True,  # ✅ ключевое правило
+        )
     )
 
     # Индексация: игрок -> [(fantasy_team_id, role_badge)]

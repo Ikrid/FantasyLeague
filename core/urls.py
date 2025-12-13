@@ -48,7 +48,9 @@ urlpatterns = [
     path("draft/buy", DraftBuyView.as_view()),
     path("draft/sell", DraftSellView.as_view()),
     path("draft/lock", DraftLockView.as_view()),
+    path("draft/lock/", DraftLockView.as_view()),
     path("draft/unlock", DraftUnlockView.as_view()),
+    path("draft/unlock/", DraftUnlockView.as_view()),
 
     # player summary
     path("player-summary/<int:player_id>/", PlayerSummaryView.as_view()),

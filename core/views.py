@@ -25,6 +25,8 @@ from .services import (
     handle_draft_buy,
     handle_draft_sell,
     get_player_summary,
+    handle_draft_lock,    # ✅ added
+    handle_draft_unlock,  # ✅ added
 )
 
 
@@ -262,7 +264,17 @@ class DraftStateView(APIView):
         # доп. флаги для UI
         state["roster_locked"] = roster_locked
         state["tournament_started"] = t_started
+
+        # ✅ can_unlock уже было
         state["can_unlock"] = roster_locked and (not t_started) and (not t_finished)
+
+        # ✅ добавил can_lock (удобно фронту)
+        slots = getattr(league, "max_badges", None) or getattr(league, "slots", None) or 5
+        roster_count = 0
+        if ft:
+            roster_count = FantasyRoster.objects.filter(fantasy_team=ft).count()
+
+        state["can_lock"] = (not t_finished) and (not t_started) and (not roster_locked) and (roster_count == slots)
 
         return Response(state)
 
@@ -331,35 +343,20 @@ class DraftLockView(APIView):
         if not league_id:
             return Response({"detail": "league_id is required"}, status=400)
 
-        league = League.objects.get(id=league_id)
+        league = League.objects.select_related("tournament").get(id=league_id)
+        t = league.tournament
 
-        ft, _ = FantasyTeam.objects.get_or_create(
-            user=request.user,
-            league=league,
-            defaults={"user_name": request.user.username, "budget_left": league.budget},
-        )
+        if t.is_finished():
+            return Response({"error": "Tournament is finished. Draft is locked."}, status=403)
 
-        if ft.roster_locked:
-            return Response({"ok": True, "roster_locked": True})
+        if _tournament_started(t):
+            return Response({"error": "Tournament already started. Draft is locked."}, status=403)
 
-        # У тебя в других местах лимит называется max_badges — используем его
-        slots = getattr(league, "max_badges", None) or getattr(league, "slots", None) or 5
-        roster_count = FantasyRoster.objects.filter(fantasy_team=ft).count()
-
-        if roster_count != slots:
-            return Response(
-                {"detail": f"You must select exactly {slots} players to lock (now {roster_count})."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        ft.roster_locked = True
-        if hasattr(ft, "locked_at"):
-            ft.locked_at = timezone.now()
-            ft.save(update_fields=["roster_locked", "locked_at"])
-        else:
-            ft.save(update_fields=["roster_locked"])
-
-        return Response({"ok": True, "roster_locked": True})
+        # ✅ Lock через services.py (единая логика)
+        result = handle_draft_lock(request.user, int(league_id))
+        if "error" in result:
+            return Response(result, status=400)
+        return Response(result, status=200)
 
 
 class DraftUnlockView(APIView):
@@ -379,23 +376,11 @@ class DraftUnlockView(APIView):
         if _tournament_started(t):
             return Response({"error": "Tournament already started. Can't unlock."}, status=403)
 
-        ft, _ = FantasyTeam.objects.get_or_create(
-            user=request.user,
-            league=league,
-            defaults={"user_name": request.user.username, "budget_left": league.budget},
-        )
-
-        if not ft.roster_locked:
-            return Response({"ok": True, "roster_locked": False})
-
-        ft.roster_locked = False
-        if hasattr(ft, "locked_at"):
-            ft.locked_at = None
-            ft.save(update_fields=["roster_locked", "locked_at"])
-        else:
-            ft.save(update_fields=["roster_locked"])
-
-        return Response({"ok": True, "roster_locked": False})
+        # ✅ Unlock через services.py (единая логика)
+        result = handle_draft_unlock(request.user, int(league_id))
+        if "error" in result:
+            return Response(result, status=400)
+        return Response(result, status=200)
 
 
 # STANDINGS
