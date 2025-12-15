@@ -538,6 +538,9 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             "team_name": getattr(r.player.team, "name", None),
             "price": price_by_player.get(r.player_id),
 
+            # ✅ NEW: роль игрока в ростере (для UI выбора роли)
+            "role_badge": (r.role_badge or None),
+
             # ✅ если не залочен — не участник => очки не показываем
             "fantasy_pts": round(total_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,
             "fppg": round(avg_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,

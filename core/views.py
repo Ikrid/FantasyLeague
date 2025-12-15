@@ -28,6 +28,7 @@ from .services import (
     handle_draft_lock,    # ✅ added
     handle_draft_unlock,  # ✅ added
 )
+from .roles import ROLES  # ✅ for role validation
 
 
 def _tournament_started(tournament) -> bool:
@@ -383,18 +384,50 @@ class DraftUnlockView(APIView):
         return Response(result, status=200)
 
 
-# STANDINGS
-class LeagueStandingsView(APIView):
-    permission_classes = [AllowAny]
+# ✅ DRAFT — SET ROLE (NEW)
+class DraftSetRoleView(APIView):
+    permission_classes = [IsAuthenticated]
 
-    def get(self, request, league_id):
-        standings = (
-            FantasyPoints.objects.filter(fantasy_team__league_id=league_id)
-            .values("fantasy_team__user_name")
-            .annotate(total_points=Sum("points"))
-            .order_by("-total_points")
-        )
-        return Response(list(standings))
+    def post(self, request):
+        league_id = request.data.get("league_id")
+        player_id = request.data.get("player_id")
+        role_badge = request.data.get("role_badge")  # may be None / "" to clear
+
+        if not league_id or not player_id:
+            return Response({"detail": "league_id and player_id are required"}, status=400)
+
+        league = League.objects.select_related("tournament").get(id=int(league_id))
+        t = league.tournament
+
+        if t and t.is_finished():
+            return Response({"error": "Tournament is finished. Can't change roles."}, status=403)
+
+        if t and _tournament_started(t):
+            return Response({"error": "Tournament already started. Can't change roles."}, status=403)
+
+        ft = FantasyTeam.objects.filter(user=request.user, league=league).first()
+        if not ft:
+            return Response({"error": "Fantasy team not found"}, status=404)
+
+        if getattr(ft, "roster_locked", False):
+            return Response({"error": "Roster is locked. Unlock to edit."}, status=403)
+
+        # normalize
+        if role_badge is not None and str(role_badge).strip() == "":
+            role_badge = None
+
+        # validate
+        if role_badge is not None and str(role_badge) not in ROLES:
+            return Response({"error": "Unknown role_badge"}, status=400)
+
+        r = FantasyRoster.objects.filter(fantasy_team=ft, player_id=int(player_id)).first()
+        if not r:
+            return Response({"error": "Player not in roster"}, status=400)
+
+        r.role_badge = role_badge
+        r.save(update_fields=["role_badge"])
+
+        return Response({"ok": True, "player_id": int(player_id), "role_badge": role_badge})
 
 
 # AUTH
@@ -640,63 +673,6 @@ class LeagueStandingsView(APIView):
                 },
             }
         )
-
-    class TournamentTopPlayersView(APIView):
-        """
-        Топ-8 самых часто выбранных игроков по турниру.
-        GET /api/tournaments/<tournament_id>/top-players/
-        """
-        permission_classes = [AllowAny]
-
-        def get(self, request, tournament_id):
-            # Проверяем, что турнир существует
-            try:
-                tournament = Tournament.objects.get(pk=tournament_id)
-            except Tournament.DoesNotExist:
-                return Response({"detail": "Tournament not found"}, status=404)
-
-            qs = (
-                FantasyRoster.objects
-                .filter(fantasy_team__league__tournament=tournament)
-                .values("player_id")
-                .annotate(picks_count=Count("id"))
-                .order_by("-picks_count", "player_id")[:8]
-            )
-
-            player_ids = [row["player_id"] for row in qs]
-            players_by_id = {p.id: p for p in Player.objects.filter(id__in=player_ids)}
-
-            top_players = []
-            for row in qs:
-                pid = row["player_id"]
-                player = players_by_id.get(pid)
-
-                if player is not None:
-                    name = None
-                    for attr in ("nickname", "name", "full_name"):
-                        if hasattr(player, attr):
-                            name = getattr(player, attr)
-                            if name:
-                                break
-                    if not name:
-                        name = str(player)
-                else:
-                    name = f"Player {pid}"
-
-                top_players.append(
-                    {
-                        "player_id": pid,
-                        "player_name": name,
-                        "picks_count": row["picks_count"],
-                    }
-                )
-
-            return Response(
-                {
-                    "tournament": {"id": tournament.id, "name": tournament.name},
-                    "top_players": top_players,
-                }
-            )
 
 
 class TournamentTopPlayersView(APIView):

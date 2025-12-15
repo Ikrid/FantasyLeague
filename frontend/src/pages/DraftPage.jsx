@@ -97,6 +97,221 @@ function InfoTile({ label, value, sub }) {
   );
 }
 
+/* ================== ROLES ================== */
+const ROLE_OPTIONS = [
+  { code: "", label: "No role" },
+  { code: "STAR_PLAYER", label: "Star Player" },
+  { code: "ENTRY_FRAGGER", label: "Entry Fragger" },
+  { code: "SUPPORT", label: "Support" },
+  { code: "GRENADER", label: "Grenader" },
+  { code: "CLUTCH_MINISTER", label: "Clutch Minister" },
+  { code: "MULTI_FRAGGER", label: "Multi Fragger" },
+  { code: "HS_MACHINE", label: "HS Machine" },
+  { code: "BAITER", label: "Baiter" },
+];
+
+const ROLE_DETAILS = {
+  "": {
+    title: "No role",
+    desc: "No risk/reward modifier. Player scores with base scoring only.",
+    how: ["No extra bonus / penalty from role system."],
+  },
+  STAR_PLAYER: {
+    title: "Star Player",
+    desc: "Rewards high rating. Punishes low rating.",
+    how: [
+      "Based on rating2 (target ≈ 1.15).",
+      "Higher rating = bonus; lower rating = penalty.",
+      "Strongest single-metric role.",
+    ],
+  },
+  ENTRY_FRAGGER: {
+    title: "Entry Fragger",
+    desc: "Rewards opening kills. Adjusts entry-death penalty depending on entry success.",
+    how: [
+      "Bonus/penalty from opening kills (normalized by map length).",
+      "If openings succeed (opening_kills ≥ 1 and ≥ opening_deaths): reduces opening-death penalty.",
+      "If openings fail: increases opening-death penalty.",
+    ],
+  },
+  SUPPORT: {
+    title: "Support",
+    desc: "Rewards flash assists. Low flashes = penalty.",
+    how: [
+      "Based on flash_assists (normalized by map length).",
+      "Target ≈ 2 flash assists per normal-length map.",
+    ],
+  },
+  GRENADER: {
+    title: "Grenader",
+    desc: "Rewards utility damage. Low utility impact = penalty.",
+    how: [
+      "Based on utility damage (normalized by map length).",
+      "Target ≈ 35 utility damage per normal-length map.",
+    ],
+  },
+  CLUTCH_MINISTER: {
+    title: "Clutch Minister",
+    desc: "Rewards winning clutches. No clutches = penalty.",
+    how: [
+      "Based on total clutch wins (1v2..1v5), normalized by map length.",
+      "Target ≈ 1 clutch win per normal-length map.",
+      "2+ clutches = big bonus.",
+    ],
+  },
+  MULTI_FRAGGER: {
+    title: "Multi Fragger",
+    desc: "Rewards multi-kill rounds (3K/4K/5K).",
+    how: [
+      "Weighted multikills: 3K=1, 4K=2, 5K=3 (normalized by map length).",
+      "Target ≈ 1 weighted multikill per normal-length map.",
+    ],
+  },
+  HS_MACHINE: {
+    title: "HS Machine",
+    desc: "Rewards high headshot percentage. Low HS% = penalty.",
+    how: ["Based on HS% = (hs / kills) * 100.", "Target ≈ 55% HS."],
+  },
+  BAITER: {
+    title: "Baiter",
+    desc: "Rewards low deaths relative to map length; too many deaths = penalty.",
+    how: [
+      "Compares deaths to a dynamic target (≈ 10 * round_factor).",
+      "Fewer deaths than target = bonus; more deaths = penalty.",
+    ],
+  },
+};
+
+function roleLabel(code) {
+  const found = ROLE_OPTIONS.find((r) => r.code === (code || ""));
+  return found ? found.label : String(code || "");
+}
+
+/* ================== ROLE PICKER MODAL ================== */
+function RoleTile({ roleCode, active, disabled, taken, onClick }) {
+  const info = ROLE_DETAILS[roleCode] || { title: roleCode, desc: "", how: [] };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full text-left rounded-2xl border p-4 transition ${
+        active
+          ? "border-white/30 bg-white/10"
+          : "border-white/10 bg-white/5 hover:bg-white/10"
+      } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-base font-semibold">{info.title}</div>
+          {info.desc && (
+            <div className="text-sm text-zinc-300 mt-1">{info.desc}</div>
+          )}
+          {taken && (
+            <div className="text-xs text-red-400 mt-2">
+              Already used by another player
+            </div>
+          )}
+        </div>
+        <div
+          className={`mt-0.5 h-4 w-4 rounded-full border ${
+            active ? "bg-white border-white" : "border-white/30"
+          }`}
+        />
+      </div>
+
+      {info.how?.length ? (
+        <ul className="mt-3 list-disc pl-5 text-xs text-zinc-400 space-y-1">
+          {info.how.map((h, i) => (
+            <li key={i}>{h}</li>
+          ))}
+        </ul>
+      ) : null}
+    </button>
+  );
+}
+
+function RolesModal({
+  open,
+  onClose,
+  currentRole,
+  onPickRole,
+  disabled,
+  playerName,
+  teamName,
+  usedRolesSet, // NEW: Set of roles already used by other roster players
+}) {
+  const [selectedRole, setSelectedRole] = useState(currentRole || "");
+
+  useEffect(() => {
+    setSelectedRole(currentRole || "");
+  }, [currentRole, open]);
+
+  if (!open) return null;
+
+  const taken = (code) => code && usedRolesSet?.has(code) && code !== selectedRole;
+
+  const canApply =
+    !disabled && !(selectedRole && usedRolesSet?.has(selectedRole));
+
+  const gridRoles = ROLE_OPTIONS.filter((r) => r.code !== ""); // 8 roles
+  const noRole = ROLE_OPTIONS.find((r) => r.code === "");
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Pick role${playerName ? ` — ${playerName}` : ""}`}
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-zinc-400">
+            {teamName ? `Team: ${teamName}` : ""}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={() => onPickRole(selectedRole)} disabled={!canApply}>
+              Apply
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="text-sm text-zinc-300">
+        Each role can be used only once in your roster. Base scoring stays the
+        same; roles affect only the role-bonus system.
+      </div>
+
+      {/* No role (separate, full width) */}
+      {noRole && (
+        <RoleTile
+          roleCode=""
+          active={(selectedRole || "") === ""}
+          disabled={disabled}
+          taken={false}
+          onClick={() => setSelectedRole("")}
+        />
+      )}
+
+      {/* 2 rows x 4 (grid) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {gridRoles.map((opt) => (
+          <RoleTile
+            key={opt.code}
+            roleCode={opt.code}
+            active={(selectedRole || "") === opt.code}
+            disabled={disabled || taken(opt.code)}
+            taken={taken(opt.code)}
+            onClick={() => setSelectedRole(opt.code)}
+          />
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
 /* ================== DRAFT PAGE ================== */
 export default function DraftPage() {
   const { leagueId } = useParams();
@@ -111,6 +326,10 @@ export default function DraftPage() {
   const [statLoading, setStatLoading] = useState(false);
   const [statErr, setStatErr] = useState("");
   const [stat, setStat] = useState(null);
+
+  // Role modal state
+  const [roleModalOpen, setRoleModalOpen] = useState(false);
+  const [roleTarget, setRoleTarget] = useState(null);
 
   async function load() {
     setErr("");
@@ -134,8 +353,8 @@ export default function DraftPage() {
   }, [leagueId]);
 
   /* ===== CONDITIONS ===== */
-  const started = state?.started === true; // draft disabled (roster locked OR tournament started OR finished)
-  const finished = state?.locked === true; // tournament finished
+  const started = state?.started === true;
+  const finished = state?.locked === true;
 
   const rosterLocked = state?.roster_locked === true;
   const canUnlock = state?.can_unlock === true;
@@ -158,6 +377,22 @@ export default function DraftPage() {
     0
   );
 
+  /* ===== used roles (unique constraint) ===== */
+  const usedRolesSetForModal = useMemo(() => {
+    const s = new Set();
+    for (const r of roster) {
+      if (!r) continue;
+      if (!roleTarget) {
+        if (r.role_badge) s.add(r.role_badge);
+      } else {
+        if (r.player_id !== roleTarget.player_id && r.role_badge) {
+          s.add(r.role_badge);
+        }
+      }
+    }
+    return s;
+  }, [roster, roleTarget]);
+
   /* ===== LOAD MATCHES IF ACTIVE ===== */
   useEffect(() => {
     async function loadMatches() {
@@ -176,7 +411,6 @@ export default function DraftPage() {
 
   const market = useMemo(() => (state?.market || []).slice(), [state]);
 
-  // === Группировка игроков маркета по командам ===
   const marketByTeam = useMemo(() => {
     const list = market || [];
     const groups = [];
@@ -227,7 +461,6 @@ export default function DraftPage() {
     }
   }
 
-  /* ===== SELL logic ===== */
   async function doSell(p) {
     if (finished || started) return;
     try {
@@ -239,6 +472,40 @@ export default function DraftPage() {
     } catch (e) {
       alert(String(e.message || e));
     }
+  }
+
+  async function doSetRole(playerId, roleBadge) {
+    if (finished || started) return;
+    try {
+      await apiPost("/draft/set-role", {
+        league_id: Number(leagueId),
+        player_id: Number(playerId),
+        role_badge: roleBadge,
+      });
+      await load();
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+  }
+
+  function openRolePicker(rosterItem) {
+    if (finished || started) return;
+    setRoleTarget(rosterItem);
+    setRoleModalOpen(true);
+  }
+
+  async function applyRoleFromModal(roleCode) {
+    if (!roleTarget) return;
+
+    // Unique enforcement: block if role already taken (except empty)
+    if (roleCode && usedRolesSetForModal.has(roleCode)) {
+      alert("This role is already used by another player.");
+      return;
+    }
+
+    await doSetRole(roleTarget.player_id, roleCode);
+    setRoleModalOpen(false);
+    setRoleTarget(null);
   }
 
   /* ===== LOCK/UNLOCK ROSTER ===== */
@@ -279,7 +546,6 @@ export default function DraftPage() {
     : !canLockRoster;
 
   const actionLabel = rosterLocked ? "Unlock" : "Lock";
-
   const actionOnClick = rosterLocked ? doUnlockRoster : doLockRoster;
 
   /* ===== MODAL STATS ===== */
@@ -329,7 +595,6 @@ export default function DraftPage() {
           {started && !finished && <Pill>Locked</Pill>}
         </div>
 
-        {/* === Upcoming Matches (only active tournament) === */}
         {!finished && (
           <section className="mt-5">
             <h2 className="text-lg font-semibold mb-2">Upcoming matches</h2>
@@ -360,7 +625,6 @@ export default function DraftPage() {
           </section>
         )}
 
-        {/* === ROSTER ALWAYS VISIBLE === */}
         <section className="mt-6">
           <h2 className="text-lg font-semibold mb-3">Your roster</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -401,6 +665,25 @@ export default function DraftPage() {
 
                       {!finished && (
                         <div className="mt-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="text-xs text-zinc-400">Role</div>
+                            <Button
+                              variant="ghost"
+                              className="px-2 py-1 text-xs rounded-lg"
+                              onClick={() => openRolePicker(r)}
+                              disabled={started}
+                            >
+                              Change
+                            </Button>
+                          </div>
+                          <div className="rounded-xl bg-black/40 border border-white/10 px-3 py-2 text-sm">
+                            {roleLabel(r.role_badge || "")}
+                          </div>
+                        </div>
+                      )}
+
+                      {!finished && (
+                        <div className="mt-3">
                           <Button
                             variant="ghost"
                             onClick={() => doSell(r)}
@@ -420,22 +703,20 @@ export default function DraftPage() {
             })}
           </div>
 
-          {/* ===== BIG ACTION BUTTON (RIGHT SIDE, LIKE YOUR RED BOX) ===== */}
-     {!finished && (
-  <div className="mt-6 flex justify-end">
-    <Button
-      onClick={actionOnClick}
-      disabled={actionDisabled}
-      variant={rosterLocked ? "danger" : "primary"}
-      className="px-8 py-3 text-lg rounded-2xl shadow-md"
-    >
-      {actionLabel}
-    </Button>
-  </div>
+          {!finished && (
+            <div className="mt-6 flex justify-end">
+              <Button
+                onClick={actionOnClick}
+                disabled={actionDisabled}
+                variant={rosterLocked ? "danger" : "primary"}
+                className="px-8 py-3 text-lg rounded-2xl shadow-md"
+              >
+                {actionLabel}
+              </Button>
+            </div>
           )}
         </section>
 
-        {/* === MARKET HIDDEN WHEN FINISHED === */}
         {!finished && (
           <section className="mt-8">
             <h2 className="text-lg font-semibold mb-3">Market</h2>
@@ -517,7 +798,6 @@ export default function DraftPage() {
         )}
       </main>
 
-      {/* === MODAL (hidden when finished) === */}
       {!finished && (
         <Modal
           open={!!selected}
@@ -684,6 +964,21 @@ export default function DraftPage() {
           )}
         </Modal>
       )}
+
+      {/* === ROLES PICKER MODAL === */}
+      <RolesModal
+        open={roleModalOpen}
+        onClose={() => {
+          setRoleModalOpen(false);
+          setRoleTarget(null);
+        }}
+        currentRole={roleTarget?.role_badge || ""}
+        onPickRole={applyRoleFromModal}
+        disabled={finished || started}
+        playerName={roleTarget?.player_name}
+        teamName={roleTarget?.team_name}
+        usedRolesSet={usedRolesSetForModal}
+      />
     </div>
   );
 }

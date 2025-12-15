@@ -9,6 +9,7 @@ from .views import (
     AdminRecalcView, LeagueStandingsView, TournamentTopPlayersView,
     MarketViewSet, MarketGenerateView,
     DraftStateView, DraftBuyView, DraftSellView, DraftLockView, DraftUnlockView,
+    DraftSetRoleView,  # ✅ added
     RegisterView, MeView,
     PlayerSummaryView, TournamentTeamViewSet,
     MatchPlayersView, HLTVImportView,
@@ -51,6 +52,10 @@ urlpatterns = [
     path("draft/lock/", DraftLockView.as_view()),
     path("draft/unlock", DraftUnlockView.as_view()),
     path("draft/unlock/", DraftUnlockView.as_view()),
+
+
+    path("draft/set-role", DraftSetRoleView.as_view()),
+    path("draft/set-role/", DraftSetRoleView.as_view()),
 
     # player summary
     path("player-summary/<int:player_id>/", PlayerSummaryView.as_view()),
