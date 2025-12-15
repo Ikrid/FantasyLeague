@@ -735,7 +735,7 @@ def recalc_map(map_id: int) -> int:
                 pts, br = calc_points(
                     stat=stat_dict,
                     played_rounds=game_map.played_rounds,
-                    winner_team_id=None,
+                    winner_team_id=game_map.winner_id,
                     player_team_id=s.player.team_id,
                     role_badge=role_badge,
                 )

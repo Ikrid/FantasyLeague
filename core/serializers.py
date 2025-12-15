@@ -71,7 +71,12 @@ class MatchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Match
-        fields = ["id", "tournament", "tournament_name", "team1", "team1_name", "team2", "team2_name", "start_time", "bo"]
+        fields = [
+            "id", "tournament", "tournament_name",
+            "team1", "team1_name", "team2", "team2_name",
+            "start_time", "bo",
+            "winner",
+        ]
 
 
 class MapSerializer(serializers.ModelSerializer):
@@ -79,7 +84,13 @@ class MapSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Map
-        fields = ["id", "match", "match_str", "map_name", "map_index", "played_rounds"]
+        fields = [
+            "id", "match", "match_str",
+            "map_name", "map_index",
+            "played_rounds",
+            "team1_score", "team2_score",
+            "winner",
+        ]
 
 
 class PlayerMapStatsSerializer(serializers.ModelSerializer):

@@ -96,8 +96,17 @@ class Match(models.Model):
     start_time = models.DateTimeField(null=True, blank=True)
     bo = models.IntegerField(default=3)
 
+    winner = models.ForeignKey(
+        Team,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="match_wins",
+    )
+
     def __str__(self):
         return f"{self.team1.name} vs {self.team2.name}"
+
 
 
 class Map(models.Model):
@@ -106,9 +115,19 @@ class Map(models.Model):
     map_index = models.IntegerField(default=1)
     played_rounds = models.IntegerField(default=0)
 
+    team1_score = models.IntegerField(null=True, blank=True)
+    team2_score = models.IntegerField(null=True, blank=True)
+
+    winner = models.ForeignKey(
+        Team,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="map_wins",
+    )
+
     def __str__(self):
         return f"{self.map_name} ({self.match})"
-
 
 class PlayerMapStats(models.Model):
     map = models.ForeignKey(Map, on_delete=models.CASCADE, related_name="player_stats")

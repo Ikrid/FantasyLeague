@@ -26,15 +26,12 @@ def _flush_recalc_queue():
     if not pending:
         return
     maps_to_recalc = list(pending)
-    # ❗️удаляем атрибут полностью
     if hasattr(_queue_recalc, "_pending"):
         delattr(_queue_recalc, "_pending")
-    for mid in maps_to_recalc:
-        try:
-            recalc_map(mid)
-        except Exception:
-            pass
 
+    for mid in maps_to_recalc:
+        # НЕ глушим исключения — иначе ты никогда не узнаешь, почему очки = 0
+        recalc_map(mid)
 
 
 @receiver(post_save, sender=PlayerMapStats, weak=False)
@@ -56,21 +53,17 @@ def _pms_deleted(sender, instance: PlayerMapStats, **kwargs):
 
 @receiver(pre_save, sender=Map, weak=False)
 def _map_pre_save(sender, instance: Map, **kwargs):
-    """
-    Если у карты меняются ключевые поля (кол-во раундов, победитель),
-    пересчитываем очки по этой карте после коммита.
-    """
     if not instance.pk:
         return
+
+    # winner_team_id больше не существует
     try:
-        old = Map.objects.only("played_rounds", "winner_team_id").get(pk=instance.pk)
+        old = Map.objects.only("played_rounds", "winner_id").get(pk=instance.pk)
     except Map.DoesNotExist:
         return
 
     played_changed = (old.played_rounds != instance.played_rounds)
-    # winner_team_id может отсутствовать в модели — поэтому через getattr с None
-    winner_changed = (getattr(old, "winner_team_id", None) != getattr(instance, "winner_team_id", None))
+    winner_changed = (old.winner_id != instance.winner_id)
 
     if played_changed or winner_changed:
-        # Привяжем к on_commit, чтобы считать на уже зафиксированных данных
         transaction.on_commit(lambda mid=instance.pk: recalc_map(mid))
