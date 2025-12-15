@@ -35,6 +35,12 @@ async function apiDelete(path) {
   return true;
 }
 
+/* ====== ADMIN RECALC (FIXED URL) ====== */
+async function adminRecalculate(scope, id) {
+  // backend endpoint: /api/admin/recalculate
+  return apiPost(`/admin/recalculate`, { scope, id });
+}
+
 /* ================== UI ================== */
 function Button({ children, onClick, type = "button", variant = "primary", disabled, className = "" }) {
   const base = variant === "ghost" ? "bg-transparent text-white hover:bg-white/10" : "bg-white text-black hover:bg-zinc-200";
@@ -205,7 +211,6 @@ function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      {/* расширенная модалка */}
       <div className="relative w-[96vw] max-w-[1600px] max-h-[90vh] overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950 p-5 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <div className="text-lg font-semibold">{title}</div>
@@ -217,7 +222,6 @@ function Modal({ title, onClose, children }) {
   );
 }
 
-// редактируемые поля
 const EDITABLE_FIELDS = [
   "kills","deaths","assists","hs","adr","rating2",
   "opening_kills","opening_deaths","flash_assists",
@@ -242,16 +246,13 @@ function MatchDetailsModal({ matchId, onClose }) {
   const [maps, setMaps] = useState([]);
   const [mapId, setMapId] = useState("");
 
-  // Полные ростеры команд
   const [team1Players, setTeam1Players] = useState([]);
   const [team2Players, setTeam2Players] = useState([]);
 
-  // текущие stats для выбранной карты
   const [stats, setStats] = useState([]);
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // ===== загрузка матча, карт (сортируем), полных ростеров
   async function loadAll(mid) {
     setLoading(true); setMsg("");
     try {
@@ -261,12 +262,10 @@ function MatchDetailsModal({ matchId, onClose }) {
       const t1Id = getId(m.team1_id ?? m.team1);
       const t2Id = getId(m.team2_id ?? m.team2);
 
-      // Карты: сортируем по map_index (возрастание)
       const ms = await apiGet(`/maps?match=${mid}`);
       (ms || []).sort((a, b) => (a?.map_index ?? 0) - (b?.map_index ?? 0));
       setMaps(ms || []);
 
-      // Полные составы команд
       const allPlayers = await apiGet(`/players`);
 
       const p1 = allPlayers.filter(p => p.team === t1Id);
@@ -275,7 +274,6 @@ function MatchDetailsModal({ matchId, onClose }) {
       setTeam1Players(p1 || []);
       setTeam2Players(p2 || []);
 
-      // выберем первую карту
       const first = String(getMapId(ms?.[0]) || "");
       setMapId(first);
       setStats([]);
@@ -286,7 +284,6 @@ function MatchDetailsModal({ matchId, onClose }) {
 
   useEffect(() => { loadAll(matchId); }, [matchId]);
 
-  // загружать статы при смене карты
   useEffect(() => {
     if (!mapId) return;
     setStats([]);
@@ -302,7 +299,6 @@ function MatchDetailsModal({ matchId, onClose }) {
     })();
   }, [mapId]);
 
-  // собрать строки для UI: всегда из ПОЛНЫХ ростеров, поверх накладываем статы
   const rows = useMemo(() => {
     const t1n = match?.team1_name ?? "Team 1";
     const t2n = match?.team2_name ?? "Team 2";
@@ -321,7 +317,6 @@ function MatchDetailsModal({ matchId, onClose }) {
         id: null,
         map: mapId ? Number(mapId) : null,
         player: p.id,
-        team: teamId ?? p.team ?? null,
         player_name: p.nickname,
         team_name: teamName,
       };
@@ -363,16 +358,16 @@ function MatchDetailsModal({ matchId, onClose }) {
       body.map = Number(mapId);
       body.player = getId(s.player ?? s._player?.id ?? s.player_id);
 
-      const t1id = getId(match?.team1_id ?? match?.team1);
-      const inTeam1 = team1Players.some(p => p.id === body.player);
-      body.team = getId(s._teamId ?? (inTeam1 ? t1id : getId(match?.team2_id ?? match?.team2)));
-
       if (s.id) {
         await apiPatch(`/player-map-stats/${s.id}/`, body);
       } else {
         const created = await apiPost(`/player-map-stats/`, body);
         setStats((prev) => prev.map((x) => (x === s ? created : x)));
       }
+
+      // force points recompute
+      await adminRecalculate("map", Number(mapId));
+
       const st = await apiGet(`/player-map-stats?map=${mapId}`);
       setStats(Array.isArray(st) ? st : []);
       setMsg("Saved");
@@ -382,20 +377,19 @@ function MatchDetailsModal({ matchId, onClose }) {
   async function saveAll() {
     setSaving(true); setMsg("");
     try {
-      const t1id = getId(match?.team1_id ?? match?.team1);
-      const t2id = getId(match?.team2_id ?? match?.team2);
-
       for (const s of [...rows.team1, ...rows.team2]) {
         const body = {};
         for (const k of EDITABLE_FIELDS) if (k in s) body[k] = s[k];
         body.map = Number(mapId);
         body.player = getId(s.player ?? s._player?.id ?? s.player_id);
-        const inTeam1 = team1Players.some(p => p.id === body.player);
-        body.team = getId(s._teamId ?? (inTeam1 ? t1id : t2id));
 
         if (s.id) await apiPatch(`/player-map-stats/${s.id}/`, body);
         else await apiPost(`/player-map-stats/`, body);
       }
+
+      // recompute once per map after bulk save
+      await adminRecalculate("map", Number(mapId));
+
       const st = await apiGet(`/player-map-stats?map=${mapId}`);
       setStats(st);
       setMsg("All rows saved");
@@ -410,7 +404,6 @@ function MatchDetailsModal({ matchId, onClose }) {
         <Note>Loading…</Note>
       ) : (
         <div className="grid gap-4">
-          {/* Maps header (отсортированы по map_index) */}
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm text-zinc-300">Maps:</span>
             {maps.map((mp) => {
@@ -430,7 +423,6 @@ function MatchDetailsModal({ matchId, onClose }) {
             <div className="ml-auto"><Button onClick={saveAll} disabled={saving || !(rows.team1.length + rows.team2.length)}>{saving ? "Saving…" : "Save all"}</Button></div>
           </div>
 
-          {/* TEAM 1 */}
           <div className="rounded-xl border border-white/10">
             <div className="px-3 py-2 font-semibold bg-white/5">{rows.team1Name}</div>
             <div className="overflow-x-auto">
@@ -460,7 +452,6 @@ function MatchDetailsModal({ matchId, onClose }) {
             </div>
           </div>
 
-          {/* TEAM 2 */}
           <div className="rounded-xl border border-white/10">
             <div className="px-3 py-2 font-semibold bg-white/5">{rows.team2Name}</div>
             <div className="overflow-x-auto">
@@ -505,39 +496,33 @@ export default function AdminPage() {
 
   const PAGE_SIZE = 10;
 
-  // datasets
   const [tournaments, setTournaments] = useState([]);
   const [leagues, setLeagues] = useState([]);
   const [teams, setTeams] = useState([]);
   const [players, setPlayers] = useState([]);
   const [tournamentTeams, setTournamentTeams] = useState([]);
 
-  // MARKET
   const [tid, setTid] = useState("");
   const [budget, setBudget] = useState("1000000");
   const [slots, setSlots] = useState("5");
   const [marketMsg, setMarketMsg] = useState("");
 
-  // TOURNAMENT (tab forms)
   const [tName, setTName] = useState("");
   const [tStart, setTStart] = useState("");
   const [tEnd, setTEnd] = useState("");
   const [ttTeam, setTtTeam] = useState("");
   const [ttTournament, setTtTournament] = useState("");
 
-  // TEAM (tab forms)
   const [teamName, setTeamName] = useState("");
   const [teamRank, setTeamRank] = useState("");
   const [ltTeam, setLtTeam] = useState("");
   const [ltTournament, setLtTournament] = useState("");
 
-  // PLAYER (tab forms)
   const [playerNickname, setPlayerNickname] = useState("");
   const [playerTeam, setPlayerTeam] = useState("");
   const [lpPlayer, setLpPlayer] = useState("");
   const [lpTeam, setLpTeam] = useState("");
 
-  // LEAGUE (tab forms)
   const [leagueName, setLeagueName] = useState("");
   const [leagueTid, setLeagueTid] = useState("");
   const [leagueBudget, setLeagueBudget] = useState("1000000");
@@ -546,14 +531,12 @@ export default function AdminPage() {
   const [llLeague, setLlLeague] = useState("");
   const [llTournament, setLlTournament] = useState("");
 
-  // MATCH creation
   const [mTid, setMTid] = useState("");
   const [mTeam1, setMTeam1] = useState("");
   const [mTeam2, setMTeam2] = useState("");
   const [mStart, setMStart] = useState("");
   const [mBo, setMBo] = useState("3");
 
-  // MATCHES LIST TAB
   const [mlTournament, setMlTournament] = useState("");
   const [mlQuery, setMlQuery] = useState("");
   const [mlMatches, setMlMatches] = useState([]);
@@ -561,12 +544,10 @@ export default function AdminPage() {
   const [mlErr, setMlErr] = useState("");
   const [openMatchId, setOpenMatchId] = useState(null);
 
-  // HLTV Import
   const [hltvInput, setHltvInput] = useState("");
   const [hltvMsg, setHltvMsg] = useState("");
   const [hltvLoading, setHltvLoading] = useState(false);
 
-  // LISTS filters
   const [qT, setQT] = useState("");
   const [qTm, setQTm] = useState("");
   const [qP, setQP] = useState("");
@@ -577,7 +558,6 @@ export default function AdminPage() {
   const [pageP, setPageP] = useState(1);
   const [pageL, setPageL] = useState(1);
 
-  // unused "add" modals
   const [showAddTournament, setShowAddTournament] = useState(false);
   const [showAddTeam, setShowAddTeam] = useState(false);
   const [showAddPlayer, setShowAddPlayer] = useState(false);
@@ -596,7 +576,6 @@ export default function AdminPage() {
   const [mLeagueBadges, setMLeagueBadges] = useState("0");
   const [mLeagueLock, setMLeagueLock] = useState("soft");
 
-  /* ===== auth + initial fetch ===== */
   useEffect(() => {
     if (!getToken()) { nav("/"); return; }
     apiGet("/auth/me")
@@ -623,7 +602,6 @@ export default function AdminPage() {
     setTournamentTeams(tts);
   }
 
-  // Options
   const tOpts = useMemo(() => [{ value: "", label: "— choose tournament —" }, ...tournaments.map(t => ({ value: String(t.id), label: t.name }))], [tournaments]);
   const teamOpts = useMemo(() => [{ value: "", label: "— choose team —" }, ...teams.map(t => ({ value: String(t.id), label: t.name }))], [teams]);
 
@@ -653,13 +631,11 @@ export default function AdminPage() {
     return [{ value: "", label: "— choose team —" }, ...list];
   }, [mTid, tournamentTeamsByTournament, teams, teamOpts]);
 
-  // сбрасываем выбранные команды при смене турнира матча
   useEffect(() => {
     setMTeam1("");
     setMTeam2("");
   }, [mTid]);
 
-  // Filtered lists
   const filteredTournaments = useMemo(
     () => tournaments.filter((t) => (t.name || "").toLowerCase().includes(qT.toLowerCase())),
     [tournaments, qT]
@@ -677,19 +653,16 @@ export default function AdminPage() {
     [leagues, qL]
   );
 
-  // Pagination totals
   const totalTPages = Math.max(1, Math.ceil(filteredTournaments.length / PAGE_SIZE));
   const totalTeamPages = Math.max(1, Math.ceil(filteredTeams.length / PAGE_SIZE));
   const totalPlayerPages = Math.max(1, Math.ceil(filteredPlayers.length / PAGE_SIZE));
   const totalLeaguePages = Math.max(1, Math.ceil(filteredLeagues.length / PAGE_SIZE));
 
-  // Reset page on query change
   useEffect(() => { setPageT(1); }, [qT]);
   useEffect(() => { setPageTm(1); }, [qTm]);
   useEffect(() => { setPageP(1); }, [qP]);
   useEffect(() => { setPageL(1); }, [qL]);
 
-  // Paginated slices
   const paginatedTournaments = useMemo(
     () => {
       const start = (pageT - 1) * PAGE_SIZE;
@@ -721,7 +694,7 @@ export default function AdminPage() {
     },
     [filteredLeagues, pageL]
   );
-  /* ===== Market ===== */
+
   async function generateMarket() {
     setMarketMsg("");
     if (!tid) return setMarketMsg("Choose tournament");
@@ -731,7 +704,8 @@ export default function AdminPage() {
     } catch (e) { setMarketMsg(String(e.message || e)); }
   }
 
-  /* ===== CRUD ===== */
+  const [msg, setMsg] = useState("");
+
   async function createTournament() {
     setMsg(""); if (!tName) return setMsg("Tournament: name required");
     try { await apiPost("/tournaments/", { name: tName, start_date: tStart || null, end_date: tEnd || null }); setMsg("Tournament created"); setTName(""); setTStart(""); setTEnd(""); await refreshAll(); }
@@ -786,7 +760,6 @@ export default function AdminPage() {
       setHltvMsg("Enter HLTV URL or ID");
       return;
     }
-    // Extract numeric ID from input (either raw ID or full URL)
     const match = String(hltvInput).match(/(\d{3,})/);
     if (!match) {
       setHltvMsg("Could not parse HLTV tournament ID");
@@ -811,11 +784,9 @@ export default function AdminPage() {
     }
   }
 
-  /* ===== LISTS save/delete ===== */
   async function saveRow(type, id, body) { await apiPatch(`/${type}/${id}/`, body); await refreshAll(); }
   async function removeRow(type, id, text) { if (!window.confirm(text || "Delete?")) return; await apiDelete(`/${type}/${id}/`); await refreshAll(); }
 
-  // ===== Matches loader =====
   function extractTournamentId(m) {
     if (m.tournament_id != null) return m.tournament_id;
     if (typeof m.tournament === "number") return m.tournament;
@@ -852,8 +823,6 @@ export default function AdminPage() {
       (m.team2_name || "").toLowerCase().includes(q)
     );
   }, [mlMatches, mlQuery]);
-
-  const [msg, setMsg] = useState("");
 
   if (!me) return <div className="min-h-screen bg-black text-white p-6">Loading…</div>;
 
@@ -915,6 +884,154 @@ export default function AdminPage() {
         )}
 
         {/* LISTS */}
+        {tab === "lists" && (
+          <div className="mt-6 space-y-8">
+            {/* ... весь твой lists код без изменений ... */}
+          </div>
+        )}
+
+        {/* TOURNAMENT */}
+        {tab === "tournament" && (
+          <div className="mt-6 grid lg:grid-cols-2 gap-6">
+            <Card title="Create Tournament">
+              <div className="grid gap-3">
+                <Input label="Name" value={tName} onChange={setTName} />
+                <Input label="Start date (YYYY-MM-DD)" value={tStart} onChange={setTStart} />
+                <Input label="End date (YYYY-MM-DD)" value={tEnd} onChange={setTEnd} />
+                <Button onClick={createTournament}>Create Tournament</Button>
+              </div>
+            </Card>
+            <Card title="Link Team → Tournament">
+              <div className="grid gap-3">
+                <Select label="Team" value={ttTeam} onChange={setTtTeam} options={teamOpts} />
+                <Select label="Tournament" value={ttTournament} onChange={setTtTournament} options={tOpts} />
+                <Button onClick={linkTeamToTournament_tt}>Link</Button>
+              </div>
+            </Card>
+            <Card title="Create Match">
+              <div className="grid gap-3">
+                <Select label="Tournament" value={mTid} onChange={setMTid} options={tOpts} />
+                <Select label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} />
+                <Select label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} />
+                <Input label="Start time (YYYY-MM-DDTHH:mm)" value={mStart} onChange={setMStart} />
+                <Input label="BO" value={mBo} onChange={setMBo} />
+                <Button onClick={createMatch}>Create Match</Button>
+              </div>
+              <Note>Время: <code>2025-08-01T19:00</code>. BO: 1/3/5.</Note>
+            </Card>
+          </div>
+        )}
+
+        {/* TEAM */}
+        {tab === "team" && (
+          <div className="mt-6 grid lg:grid-cols-2 gap-6">
+            <Card title="Create Team">
+              <div className="grid gap-3">
+                <Input label="Name" value={teamName} onChange={setTeamName} />
+                <Input label="World rank (optional)" value={teamRank} onChange={setTeamRank} />
+                <Button onClick={createTeam}>Create Team</Button>
+              </div>
+            </Card>
+            <Card title="Link Team → Tournament">
+              <div className="grid gap-3">
+                <Select label="Team" value={ltTeam} onChange={setLtTeam} options={teamOpts} />
+                <Select label="Tournament" value={ltTournament} onChange={setLtTournament} options={tOpts} />
+                <Button onClick={linkTeamToTournament}>Link</Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* PLAYER */}
+        {tab === "player" && (
+          <div className="mt-6 grid lg:grid-cols-2 gap-6">
+            <Card title="Create Player">
+              <div className="grid gap-3">
+                <Input label="Nickname" value={playerNickname} onChange={setPlayerNickname} />
+                <Select label="Team" value={playerTeam} onChange={setPlayerTeam} options={teamOpts} />
+                <Button onClick={createPlayer}>Create Player</Button>
+              </div>
+            </Card>
+            <Card title="Link Player → Team">
+              <div className="grid gap-3">
+                <Select label="Player" value={lpPlayer} onChange={setLpPlayer} options={players.map(p=>({value:String(p.id),label:p.nickname}))} />
+                <Select label="Team" value={lpTeam} onChange={setLpTeam} options={teamOpts} />
+                <Button onClick={linkPlayerToTeam}>Link</Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* LEAGUE */}
+        {tab === "league" && (
+          <div className="mt-6 grid lg:grid-cols-2 gap-6">
+            <Card title="Create League">
+              <div className="grid gap-3">
+                <Input label="Name" value={leagueName} onChange={setLeagueName} />
+                <Select label="Tournament" value={leagueTid} onChange={setLeagueTid} options={tOpts} />
+                <div className="grid grid-cols-2 gap-3">
+                  <Input label="Budget" value={leagueBudget} onChange={setLeagueBudget} />
+                  <Input label="Max badges" value={leagueBadges} onChange={setLeagueBadges} />
+                </div>
+                <Input label="Lock policy" value={leagueLock} onChange={setLeagueLock} placeholder="soft / hard" />
+                <Button onClick={createLeague}>Create League</Button>
+              </div>
+            </Card>
+            <Card title="Link League → Tournament">
+              <div className="grid gap-3">
+                <Select label="League" value={llLeague} onChange={setLlLeague} options={leagues.map(l=>({value:String(l.id),label:l.name}))} />
+                <Select label="Tournament" value={llTournament} onChange={setLlTournament} options={tOpts} />
+                <Button onClick={linkLeagueToTournament}>Link</Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* MATCHES */}
+        {tab === "matches" && (
+          <div className="mt-6 grid gap-6">
+            <Card title="Matches by Tournament" action={<Button onClick={loadMatchesForTournament}>Refresh</Button>}>
+              <div className="grid md:grid-cols-2 gap-3">
+                <Select label="Tournament" value={mlTournament} onChange={setMlTournament} options={tOpts} />
+                <Input label="Search (team names)" value={mlQuery} onChange={setMlQuery} placeholder="NaVi, Vitality, etc." />
+              </div>
+              <div className="mt-4">
+                {mlErr && <Note className="text-red-400">{mlErr}</Note>}
+                {!mlErr && mlTournament && mlLoading && <Note>Loading matches…</Note>}
+                {!mlErr && mlTournament && !mlLoading && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="text-left text-zinc-300">
+                        <tr>
+                          <th className="py-2 pr-2">ID</th>
+                          <th className="py-2 pr-2">Team 1</th>
+                          <th className="py-2 pr-2">Team 2</th>
+                          <th className="py-2 pr-2">Start</th>
+                          <th className="py-2 pr-2">BO</th>
+                          <th className="py-2 pr-2">Open</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mlFiltered.map((m) => (
+                          <tr key={m.id} className="border-t border-white/10">
+                            <td className="py-2 pr-2">{m.id}</td>
+                            <td className="py-2 pr-2">{m.team1_name}</td>
+                            <td className="py-2 pr-2">{m.team2_name}</td>
+                            <td className="py-2 pr-2">{m.start_time ? new Date(m.start_time).toLocaleString() : "—"}</td>
+                            <td className="py-2 pr-2">BO{m.bo}</td>
+                            <td className="py-2 pr-2"><Button onClick={() => setOpenMatchId(m.id)}>Open</Button></td>
+                          </tr>
+                        ))}
+                        {!mlFiltered.length && <tr><td className="py-3 text-zinc-400" colSpan={6}>No matches found.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {!mlTournament && <Note>Choose tournament to see matches.</Note>}
+              </div>
+            </Card>
+          </div>
+        )}{/* LISTS */}
         {tab === "lists" && (
           <div className="mt-6 space-y-8">
             <Card title="Tournaments">
@@ -1152,148 +1269,6 @@ export default function AdminPage() {
                   </div>
                 </div>
               )}
-            </Card>
-          </div>
-        )}
-        {/* TOURNAMENT */}
-        {tab === "tournament" && (
-          <div className="mt-6 grid lg:grid-cols-2 gap-6">
-            <Card title="Create Tournament">
-              <div className="grid gap-3">
-                <Input label="Name" value={tName} onChange={setTName} />
-                <Input label="Start date (YYYY-MM-DD)" value={tStart} onChange={setTStart} />
-                <Input label="End date (YYYY-MM-DD)" value={tEnd} onChange={setTEnd} />
-                <Button onClick={createTournament}>Create Tournament</Button>
-              </div>
-            </Card>
-            <Card title="Link Team → Tournament">
-              <div className="grid gap-3">
-                <Select label="Team" value={ttTeam} onChange={setTtTeam} options={teamOpts} />
-                <Select label="Tournament" value={ttTournament} onChange={setTtTournament} options={tOpts} />
-                <Button onClick={linkTeamToTournament_tt}>Link</Button>
-              </div>
-            </Card>
-            <Card title="Create Match">
-              <div className="grid gap-3">
-                <Select label="Tournament" value={mTid} onChange={setMTid} options={tOpts} />
-                <Select label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} />
-                <Select label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} />
-                <Input label="Start time (YYYY-MM-DDTHH:mm)" value={mStart} onChange={setMStart} />
-                <Input label="BO" value={mBo} onChange={setMBo} />
-                <Button onClick={createMatch}>Create Match</Button>
-              </div>
-              <Note>Время: <code>2025-08-01T19:00</code>. BO: 1/3/5.</Note>
-            </Card>
-          </div>
-        )}
-
-        {/* TEAM */}
-        {tab === "team" && (
-          <div className="mt-6 grid lg:grid-cols-2 gap-6">
-            <Card title="Create Team">
-              <div className="grid gap-3">
-                <Input label="Name" value={teamName} onChange={setTeamName} />
-                <Input label="World rank (optional)" value={teamRank} onChange={setTeamRank} />
-                <Button onClick={createTeam}>Create Team</Button>
-              </div>
-            </Card>
-            <Card title="Link Team → Tournament">
-              <div className="grid gap-3">
-                <Select label="Team" value={ltTeam} onChange={setLtTeam} options={teamOpts} />
-                <Select label="Tournament" value={ltTournament} onChange={setLtTournament} options={tOpts} />
-                <Button onClick={linkTeamToTournament}>Link</Button>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* PLAYER */}
-        {tab === "player" && (
-          <div className="mt-6 grid lg:grid-cols-2 gap-6">
-            <Card title="Create Player">
-              <div className="grid gap-3">
-                <Input label="Nickname" value={playerNickname} onChange={setPlayerNickname} />
-                <Select label="Team" value={playerTeam} onChange={setPlayerTeam} options={teamOpts} />
-                <Button onClick={createPlayer}>Create Player</Button>
-              </div>
-            </Card>
-            <Card title="Link Player → Team">
-              <div className="grid gap-3">
-                <Select label="Player" value={lpPlayer} onChange={setLpPlayer} options={players.map(p=>({value:String(p.id),label:p.nickname}))} />
-                <Select label="Team" value={lpTeam} onChange={setLpTeam} options={teamOpts} />
-                <Button onClick={linkPlayerToTeam}>Link</Button>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* LEAGUE */}
-        {tab === "league" && (
-          <div className="mt-6 grid lg:grid-cols-2 gap-6">
-            <Card title="Create League">
-              <div className="grid gap-3">
-                <Input label="Name" value={leagueName} onChange={setLeagueName} />
-                <Select label="Tournament" value={leagueTid} onChange={setLeagueTid} options={tOpts} />
-                <div className="grid grid-cols-2 gap-3">
-                  <Input label="Budget" value={leagueBudget} onChange={setLeagueBudget} />
-                  <Input label="Max badges" value={leagueBadges} onChange={setLeagueBadges} />
-                </div>
-                <Input label="Lock policy" value={leagueLock} onChange={setLeagueLock} placeholder="soft / hard" />
-                <Button onClick={createLeague}>Create League</Button>
-              </div>
-            </Card>
-            <Card title="Link League → Tournament">
-              <div className="grid gap-3">
-                <Select label="League" value={llLeague} onChange={setLlLeague} options={leagues.map(l=>({value:String(l.id),label:l.name}))} />
-                <Select label="Tournament" value={llTournament} onChange={setLlTournament} options={tOpts} />
-                <Button onClick={linkLeagueToTournament}>Link</Button>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {/* MATCHES */}
-        {tab === "matches" && (
-          <div className="mt-6 grid gap-6">
-            <Card title="Matches by Tournament" action={<Button onClick={loadMatchesForTournament}>Refresh</Button>}>
-              <div className="grid md:grid-cols-2 gap-3">
-                <Select label="Tournament" value={mlTournament} onChange={setMlTournament} options={tOpts} />
-                <Input label="Search (team names)" value={mlQuery} onChange={setMlQuery} placeholder="NaVi, Vitality, etc." />
-              </div>
-              <div className="mt-4">
-                {mlErr && <Note className="text-red-400">{mlErr}</Note>}
-                {!mlErr && mlTournament && mlLoading && <Note>Loading matches…</Note>}
-                {!mlErr && mlTournament && !mlLoading && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead className="text-left text-zinc-300">
-                        <tr>
-                          <th className="py-2 pr-2">ID</th>
-                          <th className="py-2 pr-2">Team 1</th>
-                          <th className="py-2 pr-2">Team 2</th>
-                          <th className="py-2 pr-2">Start</th>
-                          <th className="py-2 pr-2">BO</th>
-                          <th className="py-2 pr-2">Open</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mlFiltered.map((m) => (
-                          <tr key={m.id} className="border-t border-white/10">
-                            <td className="py-2 pr-2">{m.id}</td>
-                            <td className="py-2 pr-2">{m.team1_name}</td>
-                            <td className="py-2 pr-2">{m.team2_name}</td>
-                            <td className="py-2 pr-2">{m.start_time ? new Date(m.start_time).toLocaleString() : "—"}</td>
-                            <td className="py-2 pr-2">BO{m.bo}</td>
-                            <td className="py-2 pr-2"><Button onClick={() => setOpenMatchId(m.id)}>Open</Button></td>
-                          </tr>
-                        ))}
-                        {!mlFiltered.length && <tr><td className="py-3 text-zinc-400" colSpan={6}>No matches found.</td></tr>}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {!mlTournament && <Note>Choose tournament to see matches.</Note>}
-              </div>
             </Card>
           </div>
         )}

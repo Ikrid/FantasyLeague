@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from django.db.models import Sum, Count
 from django.utils import timezone
 import re
+from django.db.models import Sum, Count, Case, When, Value, FloatField
 
 from .hltv_tournament_scraper import import_tournament_full
 from .models import (
@@ -616,7 +617,14 @@ class LeagueStandingsView(APIView):
             .filter(league=league)
             .select_related("user", "league")
             .annotate(
-                total_points=Coalesce(Sum("fantasypoints__points"), 0.0),
+                total_points=Case(
+                    When(
+                        roster_locked=True,
+                        then=Coalesce(Sum("fantasypoints__points"), 0.0),
+                    ),
+                    default=Value(0.0),
+                    output_field=FloatField(),
+                ),
                 roster_size=Count("fantasyroster", distinct=True),
             )
             .order_by("-total_points", "id")
@@ -730,3 +738,23 @@ class TournamentTopPlayersView(APIView):
                 "top_players": top_players,
             }
         )
+
+class FantasyPointsByMapView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        map_id = request.query_params.get("map")
+        try:
+            map_id = int(map_id)
+        except Exception:
+            return Response({"error": "map must be int"}, status=400)
+
+        # суммарные очки по игроку на этой карте (по всем fantasy_team)
+        qs = (
+            FantasyPoints.objects
+            .filter(map_id=map_id, fantasy_team__roster_locked=True)
+            .values("player_id", "player__nickname")
+            .annotate(points=Sum("points"))
+            .order_by("-points", "player__nickname")
+        )
+        return Response(list(qs))
