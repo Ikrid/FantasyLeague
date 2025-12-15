@@ -1,159 +1,296 @@
 ﻿# core/roles.py
 from typing import Dict, Tuple, Callable
 
-# Композиция сабтоталов, с которыми работает скоринг.
-# Важно: 'bonus' — отдельный карман для фиксированных прибавок ролей.
 Components = Dict[str, float]
 StatDict = Dict[str, float | int | None]
 RoleFn = Callable[[Components, StatDict], Tuple[Components, Dict]]
 
+
 def _copy(c: Components) -> Components:
     return {k: float(v) for k, v in c.items()}
 
-def role_MULTIFRAGGER(c: Components, s: StatDict):
-    """Усиливает только мультикиллы."""
-    c2 = _copy(c)
-    before = c2["multi"]; c2["multi"] *= 1.25
-    meta = {"target": "multi", "mult": 1.25, "before": before, "after": c2["multi"]}
-    return c2, meta
 
-def role_HS_MACHINE(c: Components, s: StatDict):
-    """Масштабирует очки за KILL по HS%."""
-    c2 = _copy(c)
-    kills = float(s.get("kills", 0) or 0)
-    hs = float(s.get("hs", 0) or 0)
-    hs_pct = 100.0 * (hs / max(1.0, kills))
-    mult = 1.20 if hs_pct >= 70.0 else (0.85 if hs_pct < 40.0 else 1.0)
-    before = c2["kills"]; c2["kills"] *= mult
-    meta = {"target": "kills", "mult": mult, "hs_pct": hs_pct, "before": before, "after": c2["kills"]}
-    return c2, meta
+def _i(s: StatDict, key: str) -> int:
+    return int(s.get(key, 0) or 0)
 
-def role_ENTRY_FRAGGER(c: Components, s: StatDict):
-    """Усиливает открывающие киллы, смягчает наказание за opening deaths."""
-    c2 = _copy(c)
-    bpos, bneg = c2["opening_pos"], c2["opening_neg"]
-    c2["opening_pos"] *= 1.50
-    c2["opening_neg"] *= 0.80
-    meta = {
-        "effects": [
-            {"target": "opening_pos", "mult": 1.50, "before": bpos, "after": c2["opening_pos"]},
-            {"target": "opening_neg", "mult": 0.80, "before": bneg, "after": c2["opening_neg"]},
-        ]
-    }
-    return c2, meta
 
-def role_AWPER(c: Components, s: StatDict):
-    """Снайпер: чутка бафает opening и даёт небольшой стаб-бонус за высокую результативность."""
+def _f(s: StatDict, key: str) -> float:
+    return float(s.get(key, 0) or 0.0)
+
+
+def clamp(v: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, v))
+
+
+def _role_delta(metric: float, target: float, k: float, lo: float, hi: float) -> float:
+    # один принцип для всех ролей: плюс/минус по тому же показателю
+    return clamp(k * (metric - target), lo, hi)
+
+
+def _add_bonus(c2: Components, delta: float) -> None:
+    c2["bonus"] = float(c2.get("bonus", 0.0)) + float(delta)
+
+
+# --- Round normalization for role-metrics (MR12 short/long maps) ---
+ROUND_BASE: float = 20.0
+ROUND_MIN: float = 0.85
+ROUND_MAX: float = 1.25
+
+
+def _round_factor(s: StatDict) -> float:
+    """
+    Используем тот же подход, что и в scoring:
+    round_factor = clamp(played_rounds / 20, 0.85, 1.25)
+
+    ВАЖНО: чтобы это работало, в stat должен приходить played_rounds.
+    Если played_rounds не передан — считаем factor=1.0.
+    """
+    pr = int(s.get("played_rounds", 0) or 0)
+    if pr <= 0:
+        return 1.0
+    return clamp(pr / ROUND_BASE, ROUND_MIN, ROUND_MAX)
+
+
+# -------------------------
+# Roles (risk / reward)
+# -------------------------
+
+def role_CLUTCH_MINISTER(c: Components, s: StatDict):
     c2 = _copy(c)
-    before = c2["opening_pos"]; c2["opening_pos"] *= 1.25
-    # маленькая фиксированная прибавка, если rating2 >= 1.10
-    bonus = 1.0 if (s.get("rating2") or 0) >= 1.10 else 0.0
-    c2["bonus"] += bonus
-    meta = {"effects": [
-        {"target":"opening_pos","mult":1.25,"before": before,"after": c2["opening_pos"]},
-        {"target":"bonus","add": bonus}
-    ]}
-    return c2, meta
+    rf = _round_factor(s)
+
+    clutch_wins = _i(s, "cl_1v2") + _i(s, "cl_1v3") + _i(s, "cl_1v4") + _i(s, "cl_1v5")
+    clutch_adj = clutch_wins / rf  # короткая карта -> чуть больше, длинная -> чуть меньше
+
+    # target=1: если 0 клатчей — штраф, 1 — нейтрально, 2+ — бонус
+    delta = _role_delta(metric=clutch_adj, target=1.0, k=2.0, lo=-3.0, hi=6.0)
+
+    before = c2["bonus"]
+    _add_bonus(c2, delta)
+    return c2, {"effects": [{
+        "target": "bonus",
+        "add": delta,
+        "by": "clutch_wins_adj",
+        "value": round(clutch_adj, 3),
+        "detail": {"clutch_wins_raw": clutch_wins, "round_factor": round(rf, 3)},
+        "target_value": 1,
+        "before": before,
+        "after": c2["bonus"],
+    }]}
+
+
+def role_MULTI_FRAGGER(c: Components, s: StatDict):
+    c2 = _copy(c)
+    rf = _round_factor(s)
+
+    mk3 = _i(s, "mk_3k")
+    mk4 = _i(s, "mk_4k")
+    mk5 = _i(s, "mk_5k")
+
+    # взвешиваем: 4k/5k ценнее
+    weighted = mk3 + 2 * mk4 + 3 * mk5
+    weighted_adj = weighted / rf
+
+    delta = _role_delta(metric=weighted_adj, target=1.0, k=1.5, lo=-3.0, hi=6.0)
+
+    before = c2["bonus"]
+    _add_bonus(c2, delta)
+    return c2, {"effects": [{
+        "target": "bonus",
+        "add": delta,
+        "by": "weighted_multikills_adj",
+        "value": round(weighted_adj, 3),
+        "detail": {"mk_3k": mk3, "mk_4k": mk4, "mk_5k": mk5, "weighted_raw": weighted, "round_factor": round(rf, 3)},
+        "target_value": 1,
+        "before": before,
+        "after": c2["bonus"],
+    }]}
+
 
 def role_SUPPORT(c: Components, s: StatDict):
-    """Саппорт: буст ассистов + бонус за флэш-ассисты."""
     c2 = _copy(c)
-    before = c2["assists"]; c2["assists"] *= 1.30
-    flashes = float(s.get("flash_assists", 0) or 0)
-    bonus = min(flashes * 0.3, 2.0)  # до +2 очков за флеш-ассисты
-    c2["bonus"] += bonus
-    meta = {"effects":[
-        {"target":"assists","mult":1.30,"before":before,"after":c2["assists"]},
-        {"target":"bonus","add":bonus,"by":"flash_assists"}
+    rf = _round_factor(s)
+
+    flashes = _i(s, "flash_assists")
+    flashes_adj = flashes / rf
+
+    # target=2: <2 флэш-ассиста — минус, 2 — 0, 3+ — плюс
+    delta = _role_delta(metric=flashes_adj, target=2.0, k=0.8, lo=-3.0, hi=3.0)
+
+    before = c2["bonus"]
+    _add_bonus(c2, delta)
+    return c2, {"effects": [{
+        "target": "bonus",
+        "add": delta,
+        "by": "flash_assists_adj",
+        "value": round(flashes_adj, 3),
+        "detail": {"flash_assists_raw": flashes, "round_factor": round(rf, 3)},
+        "target_value": 2,
+        "before": before,
+        "after": c2["bonus"],
+    }]}
+
+
+# НЕ МЕНЯЛИ: HS% роль без round_factor (как просил)
+def role_HS_MACHINE(c: Components, s: StatDict):
+    c2 = _copy(c)
+    kills = _i(s, "kills")
+    hs = _i(s, "hs")
+    hs_pct = 0.0 if kills <= 0 else (100.0 * hs / kills)
+
+    # target=55%: ниже — минус, выше — плюс
+    # k=0.2 => каждые +5% HS ≈ +1 очко (и наоборот)
+    delta = _role_delta(metric=hs_pct, target=55.0, k=0.2, lo=-3.0, hi=3.0)
+    before = c2["bonus"]
+    _add_bonus(c2, delta)
+    return c2, {"effects": [{
+        "target": "bonus",
+        "add": delta,
+        "by": "hs_pct",
+        "value": round(hs_pct, 2),
+        "detail": {"hs": hs, "kills": kills},
+        "target_value": 55,
+        "before": before,
+        "after": c2["bonus"],
+    }]}
+
+
+# НЕ МЕНЯЛИ: rating2 роль без round_factor (как просил)
+def role_STAR_PLAYER(c: Components, s: StatDict):
+    c2 = _copy(c)
+    rt = _f(s, "rating2")
+    # target=1.15: ниже — минус, выше — плюс
+    # k=10 => +0.10 rating2 ≈ +1 очко
+    delta = _role_delta(metric=rt, target=1.15, k=10.0, lo=-4.0, hi=6.0)
+    before = c2["bonus"]
+    _add_bonus(c2, delta)
+    return c2, {"effects": [{
+        "target": "bonus",
+        "add": delta,
+        "by": "rating2",
+        "value": rt,
+        "target_value": 1.15,
+        "before": before,
+        "after": c2["bonus"],
+    }]}
+
+
+def role_BAITER(c: Components, s: StatDict):
+    c2 = _copy(c)
+    rf = _round_factor(s)
+
+    deaths = _i(s, "deaths")
+
+    # На короткой карте "норма" смертей ниже, на длинной — выше.
+    # death_target = 10 * round_factor
+    death_target = 10.0 * rf
+
+    # metric = (death_target - deaths), target=0:
+    # deaths меньше нормы -> плюс, больше -> минус
+    metric = death_target - deaths
+
+    delta = _role_delta(metric=metric, target=0.0, k=0.6, lo=-4.0, hi=4.0)
+
+    before = c2["bonus"]
+    _add_bonus(c2, delta)
+    return c2, {"effects": [{
+        "target": "bonus",
+        "add": delta,
+        "by": "death_target_minus_deaths",
+        "value": round(metric, 3),
+        "detail": {"deaths": deaths, "death_target": round(death_target, 3), "round_factor": round(rf, 3)},
+        "target_value": 0,
+        "before": before,
+        "after": c2["bonus"],
+    }]}
+
+
+def role_ENTRY_FRAGGER(c: Components, s: StatDict):
+    c2 = _copy(c)
+    rf = _round_factor(s)
+
+    ok = _i(s, "opening_kills")
+    od = _i(s, "opening_deaths")
+
+    # 1) Плюс/минус по opening kills, но с учётом длины карты
+    ok_adj = ok / rf
+    delta = _role_delta(metric=ok_adj, target=1.0, k=1.5, lo=-3.0, hi=6.0)
+
+    before_bonus = c2["bonus"]
+    _add_bonus(c2, delta)
+
+    # 2) opening deaths penalty: как было (успех -> мягче, иначе -> жёстче)
+    before_neg = c2["opening_neg"]
+    success = (ok >= 1) and (ok >= od)
+    if success:
+        c2["opening_neg"] *= 0.80  # penalty меньше
+        mult = 0.80
+    else:
+        c2["opening_neg"] *= 1.20  # penalty больше
+        mult = 1.20
+
+    return c2, {"effects": [
+        {
+            "target": "bonus",
+            "add": delta,
+            "by": "opening_kills_adj",
+            "value": round(ok_adj, 3),
+            "detail": {"opening_kills_raw": ok, "round_factor": round(rf, 3)},
+            "target_value": 1,
+            "before": before_bonus,
+            "after": c2["bonus"],
+        },
+        {
+            "target": "opening_neg",
+            "mult": mult,
+            "by": "opening_deaths",
+            "value": od,
+            "before": before_neg,
+            "after": c2["opening_neg"],
+            "cond": "success=opening_kills>=1 and opening_kills>=opening_deaths",
+            "success": success,
+        }
     ]}
-    return c2, meta
 
-def role_CLUTCHER(c: Components, s: StatDict):
-    """Клатчер: усиливает только вклад за клатчи."""
+
+def role_GRENADER(c: Components, s: StatDict):
     c2 = _copy(c)
-    before = c2["clutch"]; c2["clutch"] *= 1.30
-    meta = {"target": "clutch", "mult": 1.30, "before": before, "after": c2["clutch"]}
-    return c2, meta
+    rf = _round_factor(s)
 
-def role_ANCHOR(c: Components, s: StatDict):
-    """Якорь: делает смерти менее болезненными и добавляет бонус за utility damage."""
-    c2 = _copy(c)
-    before = c2["deaths"]; c2["deaths"] *= 0.85  # мягче штраф
-    u = float(s.get("utility_dmg", 0) or 0)
-    bonus = min(u * 0.01, 2.0)  # до +2 очков
-    c2["bonus"] += bonus
-    meta = {"effects":[
-        {"target":"deaths","mult":0.85,"before":before,"after":c2["deaths"]},
-        {"target":"bonus","add":bonus,"by":"utility_dmg"}
-    ]}
-    return c2, meta
+    ud = float(s.get("utility_dmg", 0) or 0.0)
+    ud_adj = ud / rf
 
-def role_IGL(c: Components, s: StatDict):
-    """Кэп: немного нивелирует плохой рейтинг/статистику и смерти."""
-    c2 = _copy(c)
-    # Смягчаем штраф за смерти
-    before_deaths = c2["deaths"]; c2["deaths"] *= 0.90
-    # Если rating2 низкий — слегка компенсируем adr/rating-блок
-    rt = float(s.get("rating2") or 0)
-    comp = 1.0 if rt < 0.95 else (0.5 if rt < 1.05 else 0.0)
-    c2["adr_rt"] += comp
-    meta = {"effects":[
-        {"target":"deaths","mult":0.90,"before":before_deaths,"after":c2["deaths"]},
-        {"target":"adr_rt","add":comp,"by":"low_rating_protection"}
-    ]}
-    return c2, meta
+    # target=35 на "нормальной" длине, корректируем метрику по round_factor
+    delta = _role_delta(metric=ud_adj, target=35.0, k=0.06, lo=-3.0, hi=3.0)
 
-def role_CONSISTENT(c: Components, s: StatDict):
-    """Надёжный: небольшой бонус за низкие смерти и положительный перфоманс."""
-    c2 = _copy(c)
-    deaths = float(s.get("deaths", 0) or 0)
-    rt = float(s.get("rating2") or 0)
-    bonus = 2.0 if (deaths <= 10 and rt >= 1.00) else 0.0
-    c2["bonus"] += bonus
-    meta = {"effects":[{"target":"bonus","add":bonus,"cond":"deaths<=10 & rating2>=1.0"}]}
-    return c2, meta
+    before = c2["bonus"]
+    _add_bonus(c2, delta)
 
-def role_FINISHER(c: Components, s: StatDict):
-    """Финишер: усиливает мультикиллы и клатчи слегка одновременно."""
-    c2 = _copy(c)
-    b_multi, b_clutch = c2["multi"], c2["clutch"]
-    c2["multi"] *= 1.15
-    c2["clutch"] *= 1.10
-    meta = {"effects":[
-        {"target":"multi","mult":1.15,"before":b_multi,"after":c2["multi"]},
-        {"target":"clutch","mult":1.10,"before":b_clutch,"after":c2["clutch"]}
-    ]}
-    return c2, meta
+    return c2, {"effects": [{
+        "target": "bonus",
+        "add": delta,
+        "by": "utility_dmg_adj",
+        "value": round(ud_adj, 3),
+        "detail": {"utility_dmg_raw": ud, "round_factor": round(rf, 3)},
+        "target_value": 35.0,
+        "before": before,
+        "after": c2["bonus"],
+    }]}
 
-def role_RIFLER(c: Components, s: StatDict):
-    """Райфлер: общий упор на киллы и опенинги, без эксцессов."""
-    c2 = _copy(c)
-    b_k, b_op = c2["kills"], c2["opening_pos"]
-    c2["kills"] *= 1.10
-    c2["opening_pos"] *= 1.10
-    meta = {"effects":[
-        {"target":"kills","mult":1.10,"before":b_k,"after":c2["kills"]},
-        {"target":"opening_pos","mult":1.10,"before":b_op,"after":c2["opening_pos"]}
-    ]}
-    return c2, meta
 
-# Реестр ролей
 ROLES: Dict[str, RoleFn] = {
-    "MULTIFRAGGER": role_MULTIFRAGGER,
-    "HS_MACHINE": role_HS_MACHINE,
-    "ENTRY_FRAGGER": role_ENTRY_FRAGGER,
-    "AWPER": role_AWPER,
+    "CLUTCH_MINISTER": role_CLUTCH_MINISTER,
+    "BAITER": role_BAITER,
     "SUPPORT": role_SUPPORT,
-    "CLUTCHER": role_CLUTCHER,
-    "ANCHOR": role_ANCHOR,
-    "IGL": role_IGL,
-    "CONSISTENT": role_CONSISTENT,
-    "FINISHER": role_FINISHER,
-    "RIFLER": role_RIFLER,
+    "HS_MACHINE": role_HS_MACHINE,
+    "MULTI_FRAGGER": role_MULTI_FRAGGER,
+    "STAR_PLAYER": role_STAR_PLAYER,
+    "ENTRY_FRAGGER": role_ENTRY_FRAGGER,
+    "GRENADER": role_GRENADER,
 }
 
+
 def apply_role(role_code: str | None, comp: Components, stat: StatDict) -> Tuple[Components, Dict]:
-    """Применить роль к сабтоталам. Если роль не найдена — вернуть как есть."""
     meta = {"role": role_code, "effects": []}
     if not role_code:
         return comp, meta
@@ -162,8 +299,5 @@ def apply_role(role_code: str | None, comp: Components, stat: StatDict) -> Tuple
         meta["warning"] = "unknown_role"
         return comp, meta
     c2, eff = fn(comp, stat)
-    if "effects" in eff:
-        meta["effects"] = eff["effects"]
-    else:
-        meta["effects"].append(eff)
+    meta["effects"] = eff.get("effects", [eff])
     return c2, meta
