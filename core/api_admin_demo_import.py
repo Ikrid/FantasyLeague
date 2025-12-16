@@ -6,6 +6,7 @@ from difflib import SequenceMatcher
 from tempfile import NamedTemporaryFile
 
 from django.db import transaction
+from django.db.models import Max
 from django.shortcuts import get_object_or_404
 
 from rest_framework.decorators import api_view, permission_classes, parser_classes
@@ -28,166 +29,171 @@ def _sim(a: str, b: str) -> float:
     return SequenceMatcher(None, a2, b2).ratio()
 
 
-def _match_demo_teams_to_match(team_score: dict, team1_name: str, team2_name: str) -> dict:
+def _match_demo_teams_to_match(team_score: dict, team1_name: str, team2_name: str) -> tuple[str, str]:
     """
-    team_score приходит из парсера (например {"Natus Vincere": 13, "Vitality": 10})
-    Матчим 2 демо-команды к team1/team2 матча по максимальной схожести.
-    Возвращает: {"team1_score": int, "team2_score": int}
+    team_score: {"Team Name": 13, "Other": 10}
+    Возвращает (demo_team1, demo_team2) в порядке match.team1/team2
     """
-    keys = list(team_score.keys())
-    if len(keys) != 2:
-        keys = keys[:2]
+    demo_names = list(team_score.keys())
+    if len(demo_names) < 2:
+        if demo_names:
+            return demo_names[0], demo_names[0]
+        return team1_name, team2_name
 
-    k1 = keys[0] if len(keys) > 0 else ""
-    k2 = keys[1] if len(keys) > 1 else ""
-
-    s11 = _sim(k1, team1_name)
-    s12 = _sim(k1, team2_name)
-    s21 = _sim(k2, team1_name)
-    s22 = _sim(k2, team2_name)
-
-    if (s11 + s22) >= (s12 + s21):
-        return {"team1_score": team_score.get(k1, 0), "team2_score": team_score.get(k2, 0)}
-    return {"team1_score": team_score.get(k2, 0), "team2_score": team_score.get(k1, 0)}
+    best_for_t1 = max(demo_names, key=lambda dn: _sim(dn, team1_name))
+    remaining = [dn for dn in demo_names if dn != best_for_t1]
+    best_for_t2 = max(remaining, key=lambda dn: _sim(dn, team2_name)) if remaining else best_for_t1
+    return best_for_t1, best_for_t2
 
 
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 @parser_classes([MultiPartParser, FormParser])
+@transaction.atomic
 def admin_import_demo(request):
     """
-    POST form-data:
-    - match_id: int
-    - map_id: int (optional if create_map_if_missing=1)
-    - file OR demo: .dem
-    - create_map_if_missing: 1/true (optional)
+    POST multipart (поддерживает оба варианта ключей, чтобы не ломать фронт):
+      - match_id (int)                           [обязательно]
+      - map_id (optional int)
+      - file (demo .dem)                         (или demo)
+      - create_map=1 + map_name + map_index      (старый вариант)
+      - create_map_if_missing=1                  (вариант фронта: создать новую карту автоматически)
     """
     match_id = request.data.get("match_id")
     map_id = request.data.get("map_id")
 
-    # поддерживаем оба ключа, чтобы фронт не ломался
-    file_obj = request.FILES.get("demo") or request.FILES.get("file")
+    # старый флаг
+    create_map = request.data.get("create_map")
+    # флаг из твоего AdminPage
+    create_map_if_missing = request.data.get("create_map_if_missing")
 
-    create_map_if_missing = str(request.data.get("create_map_if_missing") or "").lower() in ("1", "true", "yes", "y")
+    map_name = request.data.get("map_name")
+    map_index = request.data.get("map_index")
 
-    # map_id обязателен только если НЕ просим создать новую карту
-    if not match_id or not file_obj or (not map_id and not create_map_if_missing):
-        return Response({"detail": "match_id, map_id (or create_map_if_missing=1) and demo/file are required"}, status=400)
+    # поддержка обоих названий файла: "file" и "demo"
+    demo_file = request.FILES.get("file") or request.FILES.get("demo")
+
+    if not match_id:
+        return Response({"detail": "match_id is required"}, status=400)
+    if not demo_file:
+        return Response({"detail": "file is required"}, status=400)
 
     match = get_object_or_404(Match, id=match_id)
 
-    # сохраняем демку во временный файл + парсим
-    with NamedTemporaryFile(suffix=".dem", delete=True) as tmp:
-        for chunk in file_obj.chunks():
+    # 1) сохранить демо во временный файл и распарсить
+    with NamedTemporaryFile(delete=True, suffix=".dem") as tmp:
+        for chunk in demo_file.chunks():
             tmp.write(chunk)
         tmp.flush()
         parsed = extract_map_stats_from_demo(tmp.name)
 
+    played_rounds = parsed.get("played_rounds") or 0
     team_score = parsed.get("team_score") or {}
     players_stats = parsed.get("players") or []
+    parsed_map_name = parsed.get("map") or None
 
-    # если map_id пришёл — обновляем существующую карту; иначе создаём новую
+    # 2) выбрать/создать Map
     if map_id:
         mp = get_object_or_404(Map, id=map_id, match=match)
     else:
-        last_idx = (
-            Map.objects.filter(match=match)
-            .order_by("-map_index")
-            .values_list("map_index", flat=True)
-            .first()
-            or 0
-        )
-        next_idx = int(last_idx) + 1
-        mp = Map.objects.create(
-            match=match,
-            map_name=str(parsed.get("map_name") or f"map{next_idx}"),
-            map_index=next_idx,
-            played_rounds=int(parsed.get("played_rounds") or 0),
-        )
+        # create_map_if_missing=1 (из фронта) или create_map=1 (старый)
+        want_create = str(create_map_if_missing or create_map or "").strip() in {"1", "true", "True", "yes", "on"}
 
-    # обновим сыгранные раунды и имя карты (если надо)
-    if parsed.get("played_rounds") is not None:
-        mp.played_rounds = int(parsed["played_rounds"])
-    if parsed.get("map_name"):
-        mp.map_name = str(parsed["map_name"])
-    mp.save()
+        if not want_create:
+            return Response({"detail": "map_id or create_map/create_map_if_missing is required"}, status=400)
 
-    # если в Map есть поля team1_score/team2_score — можно обновить
-    map_fields = {f.name for f in mp._meta.fields}
+        # имя карты: либо пришло с фронта, либо из демо
+        use_map_name = (map_name or parsed_map_name or "").strip()
+        if not use_map_name:
+            return Response({"detail": "map_name is required (or demo must contain map name)"}, status=400)
+
+        # индекс:
+        # - если фронт просит create_map_if_missing, берём следующий индекс
+        # - иначе пробуем map_index из запроса, fallback = 1
+        if str(create_map_if_missing or "").strip() in {"1", "true", "True", "yes", "on"}:
+            mx = Map.objects.filter(match=match).aggregate(m=Max("map_index")).get("m") or 0
+            mi = int(mx) + 1
+        else:
+            try:
+                mi = int(map_index or 1)
+            except Exception:
+                mi = 1
+
+        mp = Map.objects.create(match=match, map_name=use_map_name, map_index=mi)
+
+    # 3) записать общие данные карты
+    if played_rounds:
+        mp.played_rounds = played_rounds
+        mp.save(update_fields=["played_rounds"])
+
+    # 4) сопоставить команды демо к match.team1/team2
+    demo_team1, demo_team2 = _match_demo_teams_to_match(
+        team_score, getattr(match.team1, "name", ""), getattr(match.team2, "name", "")
+    )
+
+    # 5) заполнить Map team scores и winner (если поля существуют)
+    map_fields = {f.name for f in Map._meta.fields}
     if "team1_score" in map_fields and "team2_score" in map_fields and team_score:
-        scores = _match_demo_teams_to_match(team_score, match.team1.name, match.team2.name)
-        mp.team1_score = int(scores["team1_score"])
-        mp.team2_score = int(scores["team2_score"])
+        mp.team1_score = int(team_score.get(demo_team1, 0) or 0)
+        mp.team2_score = int(team_score.get(demo_team2, 0) or 0)
+
+        if "winner_team" in map_fields:
+            if mp.team1_score > mp.team2_score:
+                mp.winner_team = match.team1
+            elif mp.team2_score > mp.team1_score:
+                mp.winner_team = match.team2
+            else:
+                mp.winner_team = None
+
         mp.save()
 
-    player_fields = {f.name for f in Player._meta.fields}
+    # 6) записать PlayerMapStats
+    for ps in players_stats:
+        name = ps.get("name")
+        if not name:
+            continue
+        steam_id = ps.get("steam_id") or None
 
-    with transaction.atomic():
-        for ps in players_stats:
-            p = None
-            steam_id = ps.get("steam_id")
-            nick = (ps.get("name") or "").strip()
+        # найти/создать Player
+        p = None
+        if steam_id:
+            p = Player.objects.filter(steam_id=steam_id).first()
+        if not p:
+            p = Player.objects.filter(nickname__iexact=name).first()
 
-            # 1) по steam_id (только если поле существует в Player)
-            if steam_id and "steam_id" in player_fields:
-                p = Player.objects.filter(steam_id=steam_id).first()
+        if not p:
+            create_kwargs = {}
+            if hasattr(Player, "nickname"):
+                create_kwargs["nickname"] = name
+            elif hasattr(Player, "name"):
+                create_kwargs["name"] = name
+            else:
+                create_kwargs = {"nickname": name}
 
-            # 2) по nickname (точно)
-            if p is None and nick:
-                p = Player.objects.filter(nickname__iexact=nick).first()
+            if hasattr(Player, "steam_id"):
+                create_kwargs["steam_id"] = steam_id or None
 
-            # 3) fuzzy match по nickname
-            if p is None and nick:
-                candidates = Player.objects.all()[:5000]
-                best = None
-                best_s = 0.0
-                for c in candidates:
-                    s = _sim(getattr(c, "nickname", "") or "", nick)
-                    if s > best_s:
-                        best_s = s
-                        best = c
-                if best and best_s >= 0.78:
-                    p = best
+            p = Player.objects.create(**create_kwargs)
 
-            # create minimal player
-            if p is None:
-                create_kwargs = {"nickname": (nick or steam_id or "Unknown")}
-                if "steam_id" in player_fields:
-                    create_kwargs["steam_id"] = steam_id or None
-                p = Player.objects.create(**create_kwargs)
+        allowed = {f.name for f in PlayerMapStats._meta.fields}
+        defaults: dict = {}
 
-            # какие поля есть в PlayerMapStats
-            allowed = {f.name for f in PlayerMapStats._meta.fields}
-            defaults = {}
+        alias: dict[str, str] = {
+            "utility_dmg": "utility_dmg",
+        }
 
-            alias = {
-                "hs": "headshots",  # если в модели поле называется headshots
-                "utility_dmg": "utility_dmg",  # оставлено как есть (на случай, если поле так и называется)
-                # если у тебя в модели utility_damage, раскомментируй:
-                # "utility_dmg": "utility_damage",
-            }
+        # HS: не ломаем, подстраиваемся под реальное поле модели
+        if "headshots" in allowed and "hs" not in allowed:
+            alias["hs"] = "headshots"
+        elif "hs" in allowed and "headshots" not in allowed:
+            alias["headshots"] = "hs"
 
-            for k, v in ps.items():
-                kk = alias.get(k, k)
-                if kk in allowed:
-                    defaults[kk] = v
+        for k, v in ps.items():
+            kk = alias.get(k, k)
+            if kk in allowed:
+                defaults[kk] = v
 
-            # HS% (парсер обычно не отдаёт, считаем сами)
-            if "hs_percent" in allowed and "hs_percent" not in defaults:
-                kills = float(ps.get("kills") or 0)
-                hs = float(ps.get("hs") or ps.get("headshots") or 0)
-                defaults["hs_percent"] = (hs / kills * 100.0) if kills > 0 else 0.0
-
-            # на случай другого имени поля
-            if "hs_pct" in allowed and "hs_pct" not in defaults:
-                kills = float(ps.get("kills") or 0)
-                hs = float(ps.get("hs") or ps.get("headshots") or 0)
-                defaults["hs_pct"] = (hs / kills * 100.0) if kills > 0 else 0.0
-
-            # rating2 NOT NULL -> всегда число
-            if "rating2" in allowed:
-                defaults["rating2"] = float(ps.get("rating2") or 0.0)
-
+        if hasattr(PlayerMapStats, "map") and hasattr(PlayerMapStats, "player"):
             PlayerMapStats.objects.update_or_create(
                 map=mp,
                 player=p,
