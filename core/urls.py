@@ -2,6 +2,7 @@
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from .api_admin_demo_import import admin_import_demo
 from .views import (
     TeamViewSet, PlayerViewSet, TournamentViewSet, LeagueViewSet,
     FantasyTeamViewSet, FantasyRosterViewSet,
@@ -70,7 +71,7 @@ urlpatterns = [
     path("auth/me", MeView.as_view(), name="auth-me"),
 
     path("fantasy-points", FantasyPointsByMapView.as_view()),
-
+    path("admin/import-demo", admin_import_demo),
     # HLTV импорт турнира
     path("hltv/import-tournament", HLTVImportView.as_view()),
 ]

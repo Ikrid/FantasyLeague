@@ -107,6 +107,46 @@ class Match(models.Model):
     def __str__(self):
         return f"{self.team1.name} vs {self.team2.name}"
 
+    def maps_needed_to_win(self) -> int:
+        bo = int(self.bo or 0)
+        if bo <= 0:
+            bo = 1
+        # BO должен быть нечётным. Если кто-то поставит 2/4 — считаем как 3/5 по смыслу.
+        if bo % 2 == 0:
+            bo += 1
+        return bo // 2 + 1
+
+    def recompute_winner(self, *, save: bool = True) -> Team | None:
+        """
+        Выставляет winner матча по победителям карт.
+        Считает только карты, где winner задан и равен team1/team2.
+        """
+        t1 = self.team1_id
+        t2 = self.team2_id
+        if not t1 or not t2:
+            if self.winner_id is not None:
+                self.winner = None
+                if save:
+                    self.save(update_fields=["winner"])
+            return None
+
+        wins1 = self.maps.filter(winner_id=t1).count()
+        wins2 = self.maps.filter(winner_id=t2).count()
+        need = self.maps_needed_to_win()
+
+        new_winner_id = None
+        if wins1 >= need and wins1 > wins2:
+            new_winner_id = t1
+        elif wins2 >= need and wins2 > wins1:
+            new_winner_id = t2
+
+        if self.winner_id != new_winner_id:
+            self.winner_id = new_winner_id
+            if save:
+                self.save(update_fields=["winner"])
+
+        return self.winner
+
 
 
 class Map(models.Model):
@@ -128,6 +168,40 @@ class Map(models.Model):
 
     def __str__(self):
         return f"{self.map_name} ({self.match})"
+
+    def compute_winner_id(self) -> int | None:
+        """
+        Возвращает id победителя карты по счёту раундов.
+        """
+        s1 = self.team1_score
+        s2 = self.team2_score
+
+        if s1 is None or s2 is None:
+            return None
+
+        try:
+            s1 = int(s1)
+            s2 = int(s2)
+        except (TypeError, ValueError):
+            return None
+
+        if s1 == s2:
+            return None
+
+        if not self.match_id:
+            return None
+
+        return self.match.team1_id if s1 > s2 else self.match.team2_id
+
+    def save(self, *args, **kwargs):
+        # 1) победитель карты по раундам
+        self.winner_id = self.compute_winner_id()
+
+        super().save(*args, **kwargs)
+
+        # 2) победитель матча по картам (после сохранения карты)
+        if self.match_id:
+            self.match.recompute_winner(save=True)
 
 class PlayerMapStats(models.Model):
     map = models.ForeignKey(Map, on_delete=models.CASCADE, related_name="player_stats")

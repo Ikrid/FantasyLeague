@@ -88,9 +88,9 @@ REST_FRAMEWORK = {
 
 # Увеличиваем время жизни токенов (access и refresh)
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),     # было 5 минут по умолчанию
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=24),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": False,                  # можно True, если хочешь ротацию
+    "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": False,
     "UPDATE_LAST_LOGIN": False,
     # На dev это ок; на проде — подтверди часы/таймзону на сервере
