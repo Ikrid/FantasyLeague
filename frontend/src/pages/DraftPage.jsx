@@ -31,6 +31,29 @@ async function apiPost(path, body) {
   return d;
 }
 
+/* ================== FLAGS (local /public/flags/*.svg) ================== */
+function normalizeFlagCode(raw) {
+  if (!raw) return "";
+  return String(raw).trim().toLowerCase(); // 👈 lowercase под твои файлы
+}
+
+function FlagImg({ code, className = "" }) {
+  const norm = normalizeFlagCode(code);
+  const [failed, setFailed] = useState(false);
+
+  if (!norm || failed) return null;
+
+  return (
+    <img
+      src={`/flags/${norm}.svg`} // 👈 ru.svg, eu.svg и т.д.
+      alt={norm}
+      className={`inline-block ${className}`}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 /* ================== UI ================== */
 function Button({
   children,
@@ -75,6 +98,7 @@ function Modal({ open, onClose, title, children, footer }) {
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
       <div className="relative w-full max-w-2xl rounded-2xl bg-zinc-950 border border-zinc-800 p-6 mx-4">
         <div className="flex items-center justify-between mb-4">
+          {/* title теперь может быть ReactNode, не только string */}
           <h3 className="text-xl font-semibold text-white">{title}</h3>
           <button onClick={onClose} className="text-zinc-400 hover:text-white">
             ✕
@@ -240,7 +264,7 @@ function RolesModal({
   disabled,
   playerName,
   teamName,
-  usedRolesSet, // NEW: Set of roles already used by other roster players
+  usedRolesSet,
 }) {
   const [selectedRole, setSelectedRole] = useState(currentRole || "");
 
@@ -250,12 +274,13 @@ function RolesModal({
 
   if (!open) return null;
 
-  const taken = (code) => code && usedRolesSet?.has(code) && code !== selectedRole;
+  const taken = (code) =>
+    code && usedRolesSet?.has(code) && code !== selectedRole;
 
   const canApply =
     !disabled && !(selectedRole && usedRolesSet?.has(selectedRole));
 
-  const gridRoles = ROLE_OPTIONS.filter((r) => r.code !== ""); // 8 roles
+  const gridRoles = ROLE_OPTIONS.filter((r) => r.code !== "");
   const noRole = ROLE_OPTIONS.find((r) => r.code === "");
 
   return (
@@ -284,7 +309,6 @@ function RolesModal({
         same; roles affect only the role-bonus system.
       </div>
 
-      {/* No role (separate, full width) */}
       {noRole && (
         <RoleTile
           roleCode=""
@@ -295,7 +319,6 @@ function RolesModal({
         />
       )}
 
-      {/* 2 rows x 4 (grid) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {gridRoles.map((opt) => (
           <RoleTile
@@ -327,11 +350,19 @@ export default function DraftPage() {
   const [statErr, setStatErr] = useState("");
   const [stat, setStat] = useState(null);
 
-  // Role modal state
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [roleTarget, setRoleTarget] = useState(null);
 
-  async function load() {
+  function restoreScroll(y) {
+    requestAnimationFrame(() => {
+      window.scrollTo(0, y);
+    });
+  }
+
+  async function load(opts = {}) {
+    const preserveScroll = opts?.preserveScroll === true;
+    const y = preserveScroll ? window.scrollY : 0;
+
     setErr("");
     setLoading(true);
     try {
@@ -341,6 +372,7 @@ export default function DraftPage() {
       setErr(String(e.message || e));
     } finally {
       setLoading(false);
+      if (preserveScroll) restoreScroll(y);
     }
   }
 
@@ -426,6 +458,13 @@ export default function DraftPage() {
           teamName: p.team_name || "Unknown team",
           worldRank:
             typeof p.team_world_rank === "number" ? p.team_world_rank : null,
+          // NEW: team region code if your API returns it
+          teamRegionCode:
+            p.team_region_code ||
+            p.region_code ||
+            p.team_flag_code ||
+            p.team_country_code ||
+            "",
           players: [],
         };
         groups.push(currentGroup);
@@ -450,41 +489,50 @@ export default function DraftPage() {
   }
 
   async function doBuy(p) {
+    const y = window.scrollY;
     try {
       await apiPost("/draft/buy", {
         league_id: Number(leagueId),
         player_id: p.player_id,
       });
-      await load();
+      await load({ preserveScroll: true });
+      restoreScroll(y);
     } catch (e) {
       alert(String(e.message || e));
+      restoreScroll(y);
     }
   }
 
   async function doSell(p) {
     if (finished || started) return;
+    const y = window.scrollY;
     try {
       await apiPost("/draft/sell", {
         league_id: Number(leagueId),
         player_id: p.player_id,
       });
-      await load();
+      await load({ preserveScroll: true });
+      restoreScroll(y);
     } catch (e) {
       alert(String(e.message || e));
+      restoreScroll(y);
     }
   }
 
   async function doSetRole(playerId, roleBadge) {
     if (finished || started) return;
+    const y = window.scrollY;
     try {
       await apiPost("/draft/set-role", {
         league_id: Number(leagueId),
         player_id: Number(playerId),
         role_badge: roleBadge,
       });
-      await load();
+      await load({ preserveScroll: true });
+      restoreScroll(y);
     } catch (e) {
       alert(String(e.message || e));
+      restoreScroll(y);
     }
   }
 
@@ -497,7 +545,6 @@ export default function DraftPage() {
   async function applyRoleFromModal(roleCode) {
     if (!roleTarget) return;
 
-    // Unique enforcement: block if role already taken (except empty)
     if (roleCode && usedRolesSetForModal.has(roleCode)) {
       alert("This role is already used by another player.");
       return;
@@ -516,11 +563,14 @@ export default function DraftPage() {
     );
     if (!ok) return;
 
+    const y = window.scrollY;
     try {
       await apiPost("/draft/lock", { league_id: Number(leagueId) });
-      await load();
+      await load({ preserveScroll: true });
+      restoreScroll(y);
     } catch (e) {
       alert(String(e.message || e));
+      restoreScroll(y);
     }
   }
 
@@ -531,11 +581,14 @@ export default function DraftPage() {
     );
     if (!ok) return;
 
+    const y = window.scrollY;
     try {
       await apiPost("/draft/unlock", { league_id: Number(leagueId) });
-      await load();
+      await load({ preserveScroll: true });
+      restoreScroll(y);
     } catch (e) {
       alert(String(e.message || e));
+      restoreScroll(y);
     }
   }
 
@@ -566,11 +619,25 @@ export default function DraftPage() {
     }
   }
 
+  // NEW: флаги для модалки (best-effort, ничего не ломает)
+  const selectedTeamFlagCode =
+    selected?.team_region_code ||
+    selected?.team_flag_code ||
+    selected?.region_code ||
+    selected?.team_country_code ||
+    "";
+  const selectedPlayerFlagCode =
+    selected?.player_nationality_code ||
+    selected?.nationality_code ||
+    selected?.player_flag_code ||
+    selected?.country_code ||
+    "";
+
   return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to="/" className="text-sm text-zinc-300 hover:text-white">
+    <div className="min-h-screen bg-black text-white p-8 text-base">
+      <header className="sticky top-0 z-40 -mx-8 px-8 border-b border-white/10 bg-black/70 backdrop-blur">
+        <div className="py-3 flex items-center justify-between">
+          <Link to="/" className="text-base text-zinc-300 hover:text-white">
             ← Back
           </Link>
           <div className="flex items-center gap-3">
@@ -581,8 +648,8 @@ export default function DraftPage() {
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        <h1 className="text-2xl font-bold">Draft</h1>
+      <main className="py-6">
+        <h1 className="text-4xl font-bold mt-4">Draft</h1>
 
         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
           <Pill>Budget left: {budgetLeft.toLocaleString()}</Pill>
@@ -597,7 +664,9 @@ export default function DraftPage() {
 
         {!finished && (
           <section className="mt-5">
-            <h2 className="text-lg font-semibold mb-2">Upcoming matches</h2>
+            <h2 className="text-base font-semibold text-zinc-200 mb-2">
+              Upcoming matches
+            </h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
               {matches.map((m) => (
                 <div
@@ -626,10 +695,27 @@ export default function DraftPage() {
         )}
 
         <section className="mt-6">
-          <h2 className="text-lg font-semibold mb-3">Your roster</h2>
+          <h2 className="text-base font-semibold text-zinc-200 mb-3">
+            Your roster
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             {Array.from({ length: maxSlots }).map((_, i) => {
               const r = roster[i];
+
+              // NEW: best-effort extraction (supports several possible API keys)
+              const teamFlagCode =
+                r?.team_region_code ||
+                r?.team_flag_code ||
+                r?.region_code ||
+                r?.team_country_code ||
+                "";
+              const playerFlagCode =
+                r?.player_nationality_code ||
+                r?.nationality_code ||
+                r?.player_flag_code ||
+                r?.country_code ||
+                "";
+
               return (
                 <div
                   key={i}
@@ -641,9 +727,20 @@ export default function DraftPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="text-sm text-zinc-300">{r.team_name}</div>
-                      <div className="text-lg font-semibold">
-                        {r.player_name}
+                      <div className="flex items-center gap-2 text-sm text-zinc-300">
+                        <FlagImg
+                          code={teamFlagCode}
+                          className="h-4 w-6 rounded-[3px] border border-white/10"
+                        />
+                        <span>{r.team_name}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2 text-lg font-semibold">
+                        <FlagImg
+                          code={playerFlagCode}
+                          className="h-4 w-6 rounded-[3px] border border-white/10"
+                        />
+                        <span>{r.player_name}</span>
                       </div>
 
                       <div className="mt-1 text-sm text-zinc-400">
@@ -719,15 +816,21 @@ export default function DraftPage() {
 
         {!finished && (
           <section className="mt-8">
-            <h2 className="text-lg font-semibold mb-3">Market</h2>
+            <h2 className="text-base font-semibold text-zinc-200 mb-3">
+              Market
+            </h2>
 
             {!loading && !err && (
               <div className="space-y-6 mt-2">
                 {marketByTeam.map((group) => (
                   <div key={group.key}>
                     <div className="flex items-baseline justify-between mb-2">
-                      <div className="text-sm font-semibold">
-                        {group.teamName}
+                      <div className="flex items-center gap-2 text-sm font-semibold">
+                        <FlagImg
+                          code={group.teamRegionCode}
+                          className="h-4 w-6 rounded-[3px] border border-white/10"
+                        />
+                        <span>{group.teamName}</span>
                         {group.worldRank != null && (
                           <span className="ml-2 text-xs text-zinc-400">
                             World rank #{group.worldRank}
@@ -742,6 +845,15 @@ export default function DraftPage() {
                           (r) => r.player_id === p.player_id
                         );
                         const disabled = !canBuy(p);
+
+                        // NEW: best-effort player flag code from market item
+                        const playerFlagCode =
+                          p?.player_nationality_code ||
+                          p?.nationality_code ||
+                          p?.player_flag_code ||
+                          p?.country_code ||
+                          "";
+
                         return (
                           <div
                             key={p.player_id}
@@ -751,7 +863,11 @@ export default function DraftPage() {
                             onClick={() => openPlayerModal(p)}
                           >
                             <div className="flex items-start justify-between gap-3">
-                              <div>
+                              <div className="flex items-center gap-2">
+                                <FlagImg
+                                  code={playerFlagCode}
+                                  className="h-4 w-6 rounded-[3px] border border-white/10 mt-1"
+                                />
                                 <div className="text-lg font-semibold">
                                   {p.player_name}
                                 </div>
@@ -802,8 +918,7 @@ export default function DraftPage() {
         <Modal
           open={!!selected}
           onClose={() => setSelected(null)}
-          title={
-            selected ? `${selected.player_name} — ${selected.team_name}` : ""
+          title={" "
           }
           footer={
             selected && (
@@ -827,14 +942,34 @@ export default function DraftPage() {
           {!selected ? null : (
             <>
               <div className="grid sm:grid-cols-3 gap-4">
-                <InfoTile label="Team" value={selected.team_name} />
+                <InfoTile
+                  label="Team"
+                  value={
+                    <span className="inline-flex items-center gap-2">
+                      <FlagImg
+                        code={selectedTeamFlagCode}
+                        className="h-4 w-6 rounded-[3px] border border-white/10"
+                      />
+                      <span>{selected.team_name}</span>
+                    </span>
+                  }
+                />
+                <InfoTile
+                  label="Player"
+                  value={
+                    <span className="inline-flex items-center gap-2">
+                      <FlagImg
+                        code={selectedPlayerFlagCode}
+                        className="h-4 w-6 rounded-[3px] border border-white/10"
+                      />
+                      <span>{selected.player_name}</span>
+                    </span>
+                  }
+                />
                 <InfoTile
                   label="Price"
                   value={Number(selected.price).toLocaleString()}
-                />
-                <InfoTile
-                  label="Budget left"
-                  value={budgetLeft.toLocaleString()}
+                  sub={`Budget left: ${budgetLeft.toLocaleString()}`}
                 />
               </div>
 
@@ -965,7 +1100,6 @@ export default function DraftPage() {
         </Modal>
       )}
 
-      {/* === ROLES PICKER MODAL === */}
       <RolesModal
         open={roleModalOpen}
         onClose={() => {

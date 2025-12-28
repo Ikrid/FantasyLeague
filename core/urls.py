@@ -13,7 +13,7 @@ from .views import (
     DraftSetRoleView,  # ✅ added
     RegisterView, MeView,
     PlayerSummaryView, TournamentTeamViewSet,
-    MatchPlayersView, HLTVImportView, FantasyPointsByMapView,
+    MatchPlayersView, HLTVImportView, FantasyPointsByMapView, TournamentTopRolesView,
 )
 
 router = DefaultRouter()
@@ -74,4 +74,8 @@ urlpatterns = [
     path("admin/import-demo", admin_import_demo),
     # HLTV импорт турнира
     path("hltv/import-tournament", HLTVImportView.as_view()),
+
+path("tournaments/<int:tournament_id>/top-players/", TournamentTopPlayersView.as_view()),
+path("tournaments/<int:tournament_id>/top-roles/", TournamentTopRolesView.as_view()),
+
 ]

@@ -41,7 +41,7 @@ function Button({ children, onClick, type = "button", variant = "primary", class
     <button
       type={type}
       onClick={onClick}
-      className={`px-4 py-2 rounded-2xl shadow-sm transition ${styles} ${className}`}
+      className={`px-5 py-2.5 text-base rounded-2xl shadow-sm transition ${styles} ${className}`}
     >
       {children}
     </button>
@@ -50,15 +50,15 @@ function Button({ children, onClick, type = "button", variant = "primary", class
 
 function Input({ label, type = "text", value, onChange, placeholder, autoComplete }) {
   return (
-    <label className="block space-y-1">
-      <span className="text-sm text-zinc-300">{label}</span>
+    <label className="block space-y-1.5">
+      <span className="text-base text-zinc-300">{label}</span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         autoComplete={autoComplete}
-        className="w-full rounded-xl bg-zinc-900/60 border border-zinc-700 px-3 py-2 text-white outline-none focus:ring-2 focus:ring-white/30"
+        className="w-full rounded-xl bg-zinc-900/60 border border-zinc-700 px-4 py-3 text-base text-white outline-none focus:ring-2 focus:ring-white/30"
       />
     </label>
   );
@@ -69,10 +69,10 @@ function Modal({ open, onClose, title, children, footer }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl bg-zinc-950 border border-zinc-800 p-6 mx-4">
+      <div className="relative w-full max-w-lg rounded-2xl bg-zinc-950 border border-zinc-800 p-6 mx-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xl font-semibold text-white">{title}</h3>
-          <button onClick={onClose} className="text-zinc-400 hover:text-white">✕</button>
+          <h3 className="text-2xl font-semibold text-white">{title}</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-white text-xl">✕</button>
         </div>
         <div className="space-y-4">{children}</div>
         {footer && <div className="mt-6">{footer}</div>}
@@ -117,7 +117,7 @@ function LoginModal({ open, onClose, onLoggedIn }) {
             <Link
               to="/register"
               onClick={onClose}
-              className="text-sm text-zinc-300 hover:text-white"
+              className="text-base text-zinc-300 hover:text-white"
             >
               Create account
             </Link>
@@ -126,10 +126,10 @@ function LoginModal({ open, onClose, onLoggedIn }) {
         </div>
       }
     >
-      <form className="space-y-3" onSubmit={doLogin}>
+      <form className="space-y-4" onSubmit={doLogin}>
         <Input label="Username" value={username} onChange={setUsername} />
         <Input label="Password" type="password" value={password} onChange={setPassword} />
-        {err && <p className="text-sm text-red-400">{err}</p>}
+        {err && <p className="text-base text-red-400">{err}</p>}
       </form>
     </Modal>
   );
@@ -165,16 +165,16 @@ function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="sticky top-0 z-40 bg-black/70 backdrop-blur border-b border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to="/" className="text-lg font-semibold">Fantasy CS2</Link>
-          <Link to="/" className="text-sm text-zinc-300 hover:text-white">Back</Link>
+    <div className="min-h-screen bg-black text-white p-8 text-base">
+      <header className="sticky top-0 z-40 bg-black/70 backdrop-blur border-b border-white/10 -m-8 mb-8">
+        <div className="p-8 flex items-center justify-between">
+          <Link to="/" className="text-xl font-semibold">Fantasy CS2</Link>
+          <Link to="/" className="text-base text-zinc-300 hover:text-white">Back</Link>
         </div>
       </header>
 
-      <main className="max-w-xl mx-auto px-4 py-10">
-        <h1 className="text-3xl font-bold mb-6">Create your account</h1>
+      <main className="max-w-xl">
+        <h1 className="text-4xl font-bold mb-6">Create your account</h1>
         <form onSubmit={submit} className="space-y-4">
           <Input label="Username" value={form.username} onChange={(v) => setField("username", v)} />
           <Input label="Email" value={form.email} onChange={(v) => setField("email", v)} type="email" />
@@ -183,10 +183,10 @@ function RegisterPage() {
             <Input label="Last name" value={form.last_name} onChange={(v) => setField("last_name", v)} />
           </div>
           <Input label="Password" type="password" value={form.password} onChange={(v) => setField("password", v)} />
-          {err && <p className="text-sm text-red-400">{err}</p>}
-          {ok && <p className="text-sm text-green-400">Registration successful</p>}
+          {err && <p className="text-base text-red-400">{err}</p>}
+          {ok && <p className="text-base text-green-400">Registration successful</p>}
           <div className="flex items-center justify-end gap-3">
-            <Link to="/" className="text-sm text-zinc-300 hover:text-white">Cancel</Link>
+            <Link to="/" className="text-base text-zinc-300 hover:text-white">Cancel</Link>
             <Button type="submit">{loading ? "Creating…" : "Create account"}</Button>
           </div>
         </form>
@@ -256,11 +256,11 @@ function TournamentsSection() {
   });
 
   return (
-    <section className="max-w-6xl mx-auto px-4 py-10">
+    <section className="py-6">
       <h2 className="text-4xl font-extrabold">TOURNAMENTS</h2>
 
-      {loading && <p className="text-zinc-400 mt-6">Loading…</p>}
-      {err && <p className="text-red-400 mt-6">{err}</p>}
+      {loading && <p className="text-zinc-400 mt-6 text-base">Loading…</p>}
+      {err && <p className="text-red-400 mt-6 text-base">{err}</p>}
 
       {!loading && !err && (
         <div className="mt-6 flex flex-col gap-3">
@@ -328,46 +328,43 @@ function TournamentsSection() {
 // === FAQ ===
 function FAQSection() {
   return (
-    <section id="faq" className="border-t border-white/10 bg-black">
-      <div className="max-w-6xl mx-auto px-4 py-12">
+    <section id="faq" className="border-t border-white/10 bg-black mt-8">
+      <div className="py-10">
         <h2 className="text-4xl font-extrabold tracking-tight">FAQ</h2>
 
         <div className="mt-6 space-y-4">
-
           <div className="rounded-xl border border-white/10 p-5 bg-white/5">
-            <h4 className="text-lg font-semibold">What is this?</h4>
-            <p className="text-sm text-zinc-300 mt-1">
+            <h4 className="text-xl font-semibold">What is this?</h4>
+            <p className="text-base text-zinc-300 mt-1">
               This is a CS2 Fantasy League platform where you select players before tournaments and compete for points.
             </p>
           </div>
 
           <div className="rounded-xl border border-white/10 p-5 bg-white/5">
-            <h4 className="text-lg font-semibold">How do I play?</h4>
-            <p className="text-sm text-zinc-300 mt-1">
+            <h4 className="text-xl font-semibold">How do I play?</h4>
+            <p className="text-base text-zinc-300 mt-1">
               Pick 5 players within the budget. Your score is based on HLTV match statistics.
             </p>
           </div>
 
           <div className="rounded-xl border border-white/10 p-5 bg-white/5">
-            <h4 className="text-lg font-semibold">Do I need an account?</h4>
-            <p className="text-sm text-zinc-300 mt-1">
+            <h4 className="text-xl font-semibold">Do I need an account?</h4>
+            <p className="text-base text-zinc-300 mt-1">
               Yes. You must log in to join leagues and create fantasy teams.
             </p>
           </div>
 
           <div className="rounded-xl border border-white/10 p-5 bg-white/5">
-            <h4 className="text-lg font-semibold">Are tournaments automatic?</h4>
-            <p className="text-sm text-zinc-300 mt-1">
+            <h4 className="text-xl font-semibold">Are tournaments automatic?</h4>
+            <p className="text-base text-zinc-300 mt-1">
               Yes — tournaments are imported from HLTV along with teams, players and match stats.
             </p>
           </div>
-
         </div>
       </div>
     </section>
   );
 }
-
 
 function Landing() {
   const [loginOpen, setLoginOpen] = useState(false);
@@ -381,21 +378,24 @@ function Landing() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link to="/" className="text-lg font-semibold tracking-wide">Fantasy CS2</Link>
+    <div className="min-h-screen bg-black text-white p-8 text-base">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur -m-8 mb-8">
+        <div className="p-8 flex items-center justify-between">
+          <Link to="/" className="text-xl font-semibold tracking-wide">Fantasy CS2</Link>
 
           <nav className="flex items-center gap-3">
             {token && (
-              <Link to="/admin-tools" className="text-sm text-zinc-300 hover:text-white px-3 py-1.5 border border-white/10 rounded-xl">
+              <Link
+                to="/admin-tools"
+                className="text-base text-zinc-300 hover:text-white px-3 py-1.5 border border-white/10 rounded-xl"
+              >
                 Admin Tools
               </Link>
             )}
 
             {token ? (
               <>
-                <span className="text-sm text-zinc-300">{username}</span>
+                <span className="text-base text-zinc-300">{username}</span>
                 <Button variant="ghost" onClick={logout}>Logout</Button>
               </>
             ) : (
@@ -410,7 +410,11 @@ function Landing() {
         <FAQSection />
       </main>
 
-      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} onLoggedIn={() => setTokenState(getToken())} />
+      <LoginModal
+        open={loginOpen}
+        onClose={() => setLoginOpen(false)}
+        onLoggedIn={() => setTokenState(getToken())}
+      />
     </div>
   );
 }

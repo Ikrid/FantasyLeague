@@ -26,6 +26,40 @@ async function apiPostPublic(path, body) {
   return data;
 }
 
+/* ===== FLAGS (local /public/flags) ===== */
+function FlagImg({ code, className = "" }) {
+  const [failed, setFailed] = useState(false);
+  const norm = String(code || "").trim().toLowerCase();
+  if (!norm || failed) return null;
+
+  return (
+    <img
+      src={`/flags/${norm}.svg`}
+      alt={norm}
+      className={className}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+/* ===== ROLES labels ===== */
+const ROLE_LABELS = {
+  STAR_PLAYER: "Star Player",
+  ENTRY_FRAGGER: "Entry Fragger",
+  SUPPORT: "Support",
+  GRENADER: "Grenader",
+  CLUTCH_MINISTER: "Clutch Minister",
+  MULTI_FRAGGER: "Multi Fragger",
+  HS_MACHINE: "HS Machine",
+  BAITER: "Baiter",
+};
+
+function roleLabel(code) {
+  const c = String(code || "").trim();
+  return ROLE_LABELS[c] || (c ? c : "—");
+}
+
 export default function TournamentPage() {
   const { tournamentId } = useParams();
   const navigate = useNavigate();
@@ -47,6 +81,11 @@ export default function TournamentPage() {
   const [topPlayers, setTopPlayers] = useState([]);
   const [topPlayersLoading, setTopPlayersLoading] = useState(false);
   const [topPlayersErr, setTopPlayersErr] = useState("");
+
+  // NEW: top roles
+  const [topRoles, setTopRoles] = useState([]);
+  const [topRolesLoading, setTopRolesLoading] = useState(false);
+  const [topRolesErr, setTopRolesErr] = useState("");
 
   const [leaguePage, setLeaguePage] = useState(1); // пагинация лиг
 
@@ -83,6 +122,19 @@ export default function TournamentPage() {
       .then((data) => setTopPlayers(data.top_players || []))
       .catch((e) => setTopPlayersErr(String(e.message || e)))
       .finally(() => setTopPlayersLoading(false));
+  }, [tournamentId]);
+
+  // NEW: топ ролей турнира
+  useEffect(() => {
+    if (!tournamentId) return;
+    setTopRoles([]);
+    setTopRolesErr("");
+    setTopRolesLoading(true);
+
+    apiGetPublic(`/tournaments/${tournamentId}/top-roles/`)
+      .then((data) => setTopRoles(data.top_roles || []))
+      .catch((e) => setTopRolesErr(String(e.message || e)))
+      .finally(() => setTopRolesLoading(false));
   }, [tournamentId]);
 
   // Загрузка ladder для выбранной лиги
@@ -376,28 +428,16 @@ export default function TournamentPage() {
                         >
                           <div className="flex items-center gap-3">
                             <span className="w-8 text-sm text-zinc-400">#{row.rank}</span>
-                            <div>
-                              <div className="font-semibold">{row.team_name}</div>
-                              {row.user_name && (
-                                <div className="text-sm text-zinc-500">{row.user_name}</div>
-                              )}
-                            </div>
+                            <div className="font-semibold">{row.team_name}</div>
                           </div>
-                          <div className="flex items-center gap-5 text-sm">
-                            <div className="text-zinc-400">
-                              Pts:{" "}
-                              <span className="font-semibold">
-                                {row.total_points?.toFixed
-                                  ? row.total_points.toFixed(2)
-                                  : row.total_points}
-                              </span>
-                            </div>
-                            <div className="text-zinc-400">
-                              Roster: <span className="font-semibold">{row.roster_size}</span>
-                            </div>
-                            <div className="text-zinc-400">
-                              Budget left: <span className="font-semibold">{row.budget_left}</span>
-                            </div>
+
+                          <div className="text-sm text-zinc-400">
+                            Pts:{" "}
+                            <span className="font-semibold">
+                              {row.total_points?.toFixed
+                                ? row.total_points.toFixed(2)
+                                : row.total_points}
+                            </span>
                           </div>
                         </div>
                       ))}
@@ -409,48 +449,108 @@ export default function TournamentPage() {
           </div>
 
           {/* НИЖНИЙ БЛОК — топ игроков турнира */}
- <div className="mt-6 border border-white/10 rounded-2xl p-6 bg-white/5">
-  <h3 className="text-2xl font-bold text-center mb-6">
-    Most Picked Players
-  </h3>
+          <div className="mt-6 border border-white/10 rounded-2xl p-6 bg-white/5">
+            <h3 className="text-2xl font-bold text-center mb-6">
+              Most Picked Players
+            </h3>
 
-  {topPlayersLoading && (
-    <p className="text-base text-zinc-300 text-center">Loading…</p>
-  )}
+            {topPlayersLoading && (
+              <p className="text-base text-zinc-300 text-center">Loading…</p>
+            )}
 
-  {topPlayersErr && (
-    <p className="text-base text-red-400 text-center">Error: {topPlayersErr}</p>
-  )}
+            {topPlayersErr && (
+              <p className="text-base text-red-400 text-center">Error: {topPlayersErr}</p>
+            )}
 
-  {!topPlayersLoading && !topPlayersErr && (
-    <>
-      {topPlayers.length === 0 ? (
-        <p className="text-base text-zinc-300 text-center">
-          No players picked yet in this tournament.
-        </p>
-      ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {topPlayers.map((p, idx) => (
-            <div
-              key={p.player_id ?? idx}
-              className="bg-black/40 rounded-2xl px-5 py-5 text-center"
-            >
-              <div className="text-xs text-zinc-500 mb-2">#{idx + 1}</div>
+            {!topPlayersLoading && !topPlayersErr && (
+              <>
+                {topPlayers.length === 0 ? (
+                  <p className="text-base text-zinc-300 text-center">
+                    No players picked yet in this tournament.
+                  </p>
+                ) : (
+                  <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                    {topPlayers.map((p, idx) => {
+                      const code =
+                        p.player_nationality_code ||
+                        p.nationality_code ||
+                        p.country_code ||
+                        "";
+                      return (
+                        <div
+                          key={p.player_id ?? idx}
+                          className="bg-black/40 rounded-2xl px-5 py-5 text-center"
+                        >
+                          <div className="text-xs text-zinc-500 mb-2">#{idx + 1}</div>
 
-              <div className="text-2xl font-extrabold tracking-wide truncate">
-                {p.player_name || `Player ${p.player_id}`}
-              </div>
+                          <div className="flex items-center justify-center gap-2">
+                            <FlagImg
+                              code={code}
+                              className="h-4 w-6 rounded-[3px] border border-white/10"
+                            />
+                            <div className="text-2xl font-extrabold tracking-wide truncate">
+                              {p.player_name || `Player ${p.player_id}`}
+                            </div>
+                          </div>
 
-              <div className="mt-3 text-lg text-zinc-300">
-                Count: <span className="font-semibold">{p.picks_count}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  )}
-</div>
+                          {/* NEW: country code under player */}
+                          <div className="mt-2 text-sm text-zinc-400">
+                            {code ? code.toUpperCase() : "—"}
+                          </div>
+
+                          <div className="mt-3 text-lg text-zinc-300">
+                            Count: <span className="font-semibold">{p.picks_count}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* NEW: TOP ROLES блок ниже игроков */}
+          <div className="mt-6 border border-white/10 rounded-2xl p-6 bg-white/5">
+            <h3 className="text-2xl font-bold text-center mb-6">
+              Most Picked Roles
+            </h3>
+
+            {topRolesLoading && (
+              <p className="text-base text-zinc-300 text-center">Loading…</p>
+            )}
+
+            {topRolesErr && (
+              <p className="text-base text-red-400 text-center">Error: {topRolesErr}</p>
+            )}
+
+            {!topRolesLoading && !topRolesErr && (
+              <>
+                {topRoles.length === 0 ? (
+                  <p className="text-base text-zinc-300 text-center">
+                    No roles picked yet in this tournament.
+                  </p>
+                ) : (
+                  <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                    {topRoles.map((r, idx) => (
+                      <div
+                        key={`${r.role_badge || "none"}-${idx}`}
+                        className="bg-black/40 rounded-2xl px-5 py-5 text-center"
+                      >
+                        <div className="text-xs text-zinc-500 mb-2">#{idx + 1}</div>
+                        <div className="text-xl font-extrabold tracking-wide">
+                          {roleLabel(r.role_badge)}
+                        </div>
+                        <div className="mt-3 text-lg text-zinc-300">
+                          Count: <span className="font-semibold">{r.picks_count}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </>
       )}
     </div>

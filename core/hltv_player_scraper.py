@@ -148,6 +148,43 @@ class HLTVPlayerScraper:
 
         return nickname
 
+
+    # --------------------------------------------------------------
+    # парс национальности (флаг)
+
+    @staticmethod
+    def _extract_nationality(soup: BeautifulSoup) -> tuple[str | None, str | None]:
+        """
+        Достаём национальность игрока со страницы HLTV stats.
+
+        Обычно есть:
+          <img ... class="flag" itemprop="nationality" title="Russia" src="/img/static/flags/30x20/RU.gif">
+
+        Возвращаем:
+          (code, name) -> ("RU", "Russia")
+        """
+        img = (
+            soup.select_one('img.flag[itemprop="nationality"]')
+            or soup.find("img", attrs={"itemprop": "nationality"})
+        )
+
+        if not img:
+            # fallback: иногда itemprop может отсутствовать
+            img = soup.select_one(".playerInfo img.flag") or soup.select_one("img.flag")
+
+        if not img:
+            return None, None
+
+        src = (img.get("src") or "").strip()
+        title = (img.get("title") or img.get("alt") or "").strip() or None
+
+        code = None
+        m = re.search(r"/([A-Za-z0-9]{2,3})\.(?:gif|png|svg)\b", src)
+        if m:
+            code = m.group(1).upper()
+
+        return code, title
+
     # --------------------------------------------------------------
 
     def scrape(self, url: str) -> PlayerHLTVStats:
@@ -178,6 +215,19 @@ class HLTVPlayerScraper:
         print(f"[HLTV-PLAYER] Nickname resolved: {nickname}")
 
         player, _ = Player.objects.get_or_create(nickname=nickname)
+
+        # --- nationality / flag ---
+        nat_code, nat_name = self._extract_nationality(soup)
+        update_fields = []
+        if nat_code and getattr(player, "nationality_code", None) != nat_code:
+            player.nationality_code = nat_code
+            update_fields.append("nationality_code")
+        if nat_name and getattr(player, "nationality_name", None) != nat_name:
+            player.nationality_name = nat_name
+            update_fields.append("nationality_name")
+        if update_fields:
+            player.save(update_fields=update_fields)
+
         stats_obj, _ = PlayerHLTVStats.objects.get_or_create(player=player)
 
         # --- DEBUG: проверяем, в какую БД пишем и сколько записей до сохранения ---

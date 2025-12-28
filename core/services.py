@@ -538,10 +538,11 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             "team_name": getattr(r.player.team, "name", None),
             "price": price_by_player.get(r.player_id),
 
-            # ✅ NEW: роль игрока в ростере (для UI выбора роли)
-            "role_badge": (r.role_badge or None),
+            # ✅ FLAGS
+            "player_nationality_code": getattr(r.player, "nationality_code", None),
+            "team_region_code": getattr(getattr(r.player, "team", None), "region_code", None),
 
-            # ✅ если не залочен — не участник => очки не показываем
+            "role_badge": (r.role_badge or None),
             "fantasy_pts": round(total_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,
             "fppg": round(avg_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,
         }
@@ -576,6 +577,11 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             "team_id": pp.player.team_id,
             "team_name": getattr(pp.player.team, "name", None),
             "team_world_rank": getattr(pp.player.team, "world_rank", None),
+
+            # ✅ FLAGS
+            "player_nationality_code": getattr(pp.player, "nationality_code", None),
+            "team_region_code": getattr(getattr(pp.player, "team", None), "region_code", None),
+
             "price": pp.price,
         }
         for pp in market_qs

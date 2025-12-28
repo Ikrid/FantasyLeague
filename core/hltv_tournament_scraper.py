@@ -39,7 +39,11 @@ class HLTVTournamentScraper:
       tournament_url -> команды из блока 'Teams attending'
                       -> по 5 игроков из .lineup-box
                       -> HLTV статы игроков.
-    ВСЁ берём только из страницы турнира, без перехода на team pages.
+
+    ВАЖНО:
+      Флаг команды (Team.region_code / region_name) БЕРЁМ ТОЛЬКО со страницы команды:
+        https://www.hltv.org/team/<id>/<name>
+      Потому что на event-странице внутри team-box смешаны элементы, и легко словить флаги игроков.
     """
 
     def __init__(self, headless: bool = True):
@@ -55,12 +59,12 @@ class HLTVTournamentScraper:
             chrome_options.add_argument("--window-size=1920,1080")
 
         self.driver = uc.Chrome(options=chrome_options)
-        # игроки скрапятся тем же режимом headless / не headless, что и турнир
         self.player_scraper = HLTVPlayerScraper(headless=headless)
 
-        # сюда будем класть последние распарсенные команды,
-        # чтобы import_tournament_full мог их использовать
         self._last_teams_data = []
+
+        # кеш, чтобы не дергать страницу команды повторно
+        self._team_flag_cache: dict[str, tuple[str | None, str | None]] = {}
 
     # ----------------------------------------------------------
 
@@ -87,40 +91,94 @@ class HLTVTournamentScraper:
             btn.click()
             print("[COOKIE] Cookie dialog closed")
         except Exception:
-            # нет диалога — ок
             pass
 
     # ----------------------------------------------------------
-    # ПАРСИНГ БЛОКА TEAMS ATTENDING + LINEUPS
+    # TEAM PAGE FLAG (ОБЯЗАТЕЛЬНО)
+    # ----------------------------------------------------------
+
+    def _parse_flag_from_img(self, img) -> tuple[str | None, str | None]:
+        if not img:
+            return None, None
+
+        name = (img.get("title") or img.get("alt") or "").strip() or None
+        src = (img.get("src") or "").strip()
+
+        # Пример HLTV:
+        # /img/static/flags/30x20/WORLD.gif
+        # /img/static/flags/30x20/EU.gif
+        # /img/static/flags/30x20/ASEAN.gif
+        m_flag = re.search(r"/([A-Za-z0-9]{2,12})\.(?:gif|png|svg)\b", src)
+        code = m_flag.group(1).upper() if m_flag else None
+        return code, name
+
+    def _fetch_team_flag_from_team_page(self, team_url: str) -> tuple[str | None, str | None]:
+        """
+        Всегда ходим на страницу команды и берём флаг оттуда.
+
+        Пример:
+          view-source:https://www.hltv.org/team/5973/liquid
+          <img alt="Other" src="/img/static/flags/30x20/WORLD.gif" class="flag flag" title="Other">
+        """
+        if not team_url:
+            return None, None
+
+        if team_url in self._team_flag_cache:
+            return self._team_flag_cache[team_url]
+
+        code, name = None, None
+
+        try:
+            self.driver.get(team_url)
+            self._accept_cookies_if_needed()
+
+            # ждём загрузку профиля команды
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.teamProfile"))
+            )
+
+            html = self.driver.page_source
+            soup = BeautifulSoup(html, "html.parser")
+
+            # 1) самый точный вариант: флаг рядом со страной/регионом команды
+            img = (
+                soup.select_one("div.teamProfile div.team-country img.flag")
+                or soup.select_one("div.teamProfile .team-country img.flag")
+            )
+
+            # 2) фолбэк: первый img.flag в teamProfile (на team page флаг почти всегда один и относится к команде)
+            if not img:
+                img = soup.select_one("div.teamProfile img.flag")
+
+            # 3) последний фолбэк: просто первый img.flag на странице
+            if not img:
+                img = soup.select_one("img.flag")
+
+            code, name = self._parse_flag_from_img(img)
+
+        except Exception:
+            code, name = None, None
+
+        self._team_flag_cache[team_url] = (code, name)
+        return code, name
+
+    # ----------------------------------------------------------
+    # EVENT LINEUPS (без флага команды)
     # ----------------------------------------------------------
 
     def _parse_event_lineups(self, html: str):
         """
-        Берём только блoк:
-
-        <div class="teams-attending grid">
-          <div class="col standard-box team-box supports-hover" has-lineup="">
-            .
-            <div class="lineup-box hidden">
-              <a href="/player/.">.</a> x5
-            </div>
-          </div>
-          .
-        </div>
-
         Возвращаем список:
-
         [
           {
-            "name": "SINNERS",
-            "url": "https://www.hltv.org/team/10577/sinners",
-            "players": [
-              {"nickname": "beastik", "stats_url": "https://www.hltv.org/stats/players/11199/beastik"},
-              .
-            ]
+            "name": "Liquid",
+            "url": "https://www.hltv.org/team/5973/liquid",
+            "players": [...],
+            "world_rank": 12,
           },
-          .
         ]
+
+        Флаг команды здесь НЕ трогаем — берём только с team page.
         """
         soup = BeautifulSoup(html, "html.parser")
 
@@ -135,7 +193,6 @@ class HLTVTournamentScraper:
         print(f"[DEBUG] Найдено team-box: {len(team_boxes)}")
 
         for box in team_boxes:
-            # --- команда ---
             team_link = box.select_one(".team-name a[href*='/team/']")
             if not team_link:
                 continue
@@ -143,26 +200,23 @@ class HLTVTournamentScraper:
             href = team_link.get("href") or ""
             team_url = href if href.startswith("http") else urljoin(HLTV_BASE, href)
 
-            # название команды — внутри .text или просто text линка
             name_el = team_link.select_one(".text") or team_link
             raw_name = name_el.get_text(strip=True)
-            # отрезаем ранги типа "#48"
             team_name = raw_name.split("#", 1)[0].strip()
 
-            # ---------- НОВОЕ: парсим world_rank из <div class="event-world-rank"> ----------
-            world_rank = None  # <<< NEW
-            rank_div = box.select_one("div.event-world-rank")  # <<< NEW
-            if rank_div:  # <<< NEW
-                rank_text = rank_div.get_text(strip=True)  # например "#34"  <<< NEW
-                m = re.search(r"\d+", rank_text)  # <<< NEW
-                if m:  # <<< NEW
-                    try:  # <<< NEW
-                        world_rank = int(m.group(0))  # 34  <<< NEW
-                    except ValueError:  # <<< NEW
-                        world_rank = None  # <<< NEW
-            # ----------------------------------------------------------------------
+            # world rank
+            world_rank = None
+            rank_div = box.select_one("div.event-world-rank")
+            if rank_div:
+                rank_text = rank_div.get_text(strip=True)
+                m = re.search(r"\d+", rank_text)
+                if m:
+                    try:
+                        world_rank = int(m.group(0))
+                    except ValueError:
+                        world_rank = None
 
-            # --- игроки (ровно 5 из lineup-box) ---
+            # игроки
             lineup_box = box.select_one(".lineup-box")
             if not lineup_box:
                 print(f"[DEBUG] У команды {team_name} нет .lineup-box")
@@ -175,16 +229,10 @@ class HLTVTournamentScraper:
                 if not nickname:
                     continue
 
-                # /player/11199/beastik -> /stats/players/11199/beastik
                 stats_path = p_href.replace("/player/", "/stats/players/")
                 stats_url = urljoin(HLTV_BASE, stats_path)
 
-                players.append(
-                    {
-                        "nickname": nickname,
-                        "stats_url": stats_url,
-                    }
-                )
+                players.append({"nickname": nickname, "stats_url": stats_url})
 
             if not players:
                 print(f"[DEBUG] У команды {team_name} не найдено игроков в lineup-box")
@@ -195,7 +243,7 @@ class HLTVTournamentScraper:
                     "name": team_name,
                     "url": team_url,
                     "players": players,
-                    "world_rank": world_rank,  # <<< NEW
+                    "world_rank": world_rank,
                 }
             )
 
@@ -206,20 +254,8 @@ class HLTVTournamentScraper:
     # ----------------------------------------------------------
 
     def _parse_event_dates(self, html: str):
-        """
-        Достаём диапазон дат турнира.
-
-        1) Нормальный путь: берём <td class="eventdate"> и читаем data-unix
-           у двух span'ов:
-             <span data-unix="...start..."> ... </span>
-             ...
-             <span data-unix="...end...">   ... </span>
-
-        2) Фоллбэк: пробуем вытащить даты из текста (форматы dd/mm/yy и т.п.).
-        """
         soup = BeautifulSoup(html, "html.parser")
 
-        # --- 1. Попытка через data-unix ---
         cell = soup.find("td", class_="eventdate")
         if cell:
             spans = [s for s in cell.find_all("span") if s.has_attr("data-unix")]
@@ -232,17 +268,14 @@ class HLTVTournamentScraper:
                     end = datetime.datetime.utcfromtimestamp(end_ts).date()
                     return start, end
                 except Exception:
-                    # если что-то пошло не так — попробуем текстовым парсером ниже
                     pass
 
-        # --- 2. Фоллбэк: парсим текст (для других форматов событий) ---
         el = soup.find(class_=lambda v: v and "eventdate" in v.lower())
         if not el:
             return None, None
 
         text = el.get_text(" ", strip=True)
 
-        # dd/mm/yyyy - dd/mm/yyyy
         m = re.search(
             r"(\d{1,2})/(\d{1,2})/(\d{4}).*?(\d{1,2})/(\d{1,2})/(\d{4})",
             text,
@@ -256,7 +289,6 @@ class HLTVTournamentScraper:
             except ValueError:
                 return None, None
 
-        # dd/mm - dd/mm/yyyy (год только в конце)
         m = re.search(
             r"(\d{1,2})/(\d{1,2}).*?(\d{1,2})/(\d{1,2})/(\d{4})",
             text,
@@ -276,47 +308,28 @@ class HLTVTournamentScraper:
     # ПУБЛИЧНЫЙ МЕТОД: СКРАП ТУРНИРА
     # ----------------------------------------------------------
 
-    # ВАРИАНТ 1: БЕЗ transaction.atomic
     def scrape_tournament(self, event_url: str) -> Tournament:
-        """
-        Главный метод:
-          - создаёт/находит Tournament по имени,
-          - парсит даты турнира (start_date, end_date),
-          - из .teams-attending.grid достаёт команды,
-          - из их .lineup-box берёт по 5 игроков,
-          - для каждого игрока вытягивает HLTV-стату за 3 месяца.
-
-        ВОЗВРАЩАЕТ: объект Tournament.
-        """
         print(f"[TOURNAMENT] {event_url}")
         self.driver.get(event_url)
         self._accept_cookies_if_needed()
 
-        # ждём, пока появится блок с командами
         WebDriverWait(self.driver, 15).until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "div.teams-attending.grid")
-            )
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.teams-attending.grid"))
         )
 
         html = self.driver.page_source
         soup = BeautifulSoup(html, "html.parser")
 
-        # Даты турнира
         start_date, end_date = self._parse_event_dates(html)
 
-        # Название турнира — <h1> Tipsport MČR 2025
         h1 = soup.find("h1")
         if h1:
             t_name = h1.get_text(strip=True)
         else:
             t_name = event_url.rstrip("/").split("/")[-1]
 
-        tournament_obj, created = Tournament.objects.get_or_create(
-            name=t_name,
-        )
+        tournament_obj, created = Tournament.objects.get_or_create(name=t_name)
 
-        # если удалось распарсить даты — записываем их в модель
         updated = False
         if start_date and getattr(tournament_obj, "start_date", None) != start_date:
             tournament_obj.start_date = start_date
@@ -330,41 +343,46 @@ class HLTVTournamentScraper:
         teams_data = self._parse_event_lineups(html)
         print(f"[TOURNAMENT] Найдено команд в 'Teams attending': {len(teams_data)}")
 
-        # сохраняем для import_tournament_full
         self._last_teams_data = teams_data
 
         for tdata in teams_data:
             team_name = tdata["name"]
-            print(f"[TEAM] {team_name} -> {tdata['url']}")
+            team_url = tdata["url"]
+            print(f"[TEAM] {team_name} -> {team_url}")
 
-            team_obj, _ = Team.objects.get_or_create(
-                name=team_name,
-            )
+            team_obj, _ = Team.objects.get_or_create(name=team_name)
 
-            # ---------- НОВОЕ: сохраняем world_rank в модель Team ----------
-            # tdata["world_rank"] может быть None, если на странице нет ранга
-            world_rank = tdata.get("world_rank")  # <<< NEW
-            if world_rank is not None and getattr(team_obj, "world_rank", None) != world_rank:  # <<< NEW
-                team_obj.world_rank = world_rank  # <<< NEW
-                # update_fields чтобы не трогать другие поля  <<< NEW
-                team_obj.save(update_fields=["world_rank"])  # <<< NEW
-            # --------------------------------------------------------------
+            # world rank
+            world_rank = tdata.get("world_rank")
+            if world_rank is not None and getattr(team_obj, "world_rank", None) != world_rank:
+                team_obj.world_rank = world_rank
+                team_obj.save(update_fields=["world_rank"])
 
+            # ФЛАГ КОМАНДЫ: ВСЕГДА с team page
+            region_code, region_name = self._fetch_team_flag_from_team_page(team_url)
+
+            update_fields = []
+            if region_code is not None and getattr(team_obj, "region_code", None) != region_code:
+                team_obj.region_code = region_code
+                update_fields.append("region_code")
+            if region_name is not None and getattr(team_obj, "region_name", None) != region_name:
+                team_obj.region_name = region_name
+                update_fields.append("region_name")
+            if update_fields:
+                team_obj.save(update_fields=update_fields)
+
+            # игроки + статы
             for pdata in tdata["players"]:
                 nickname = pdata["nickname"]
                 stats_url = pdata["stats_url"]
 
                 print(f"  [PLAYER] {nickname}")
-                player_obj, _ = Player.objects.get_or_create(
-                    nickname=nickname,
-                )
+                player_obj, _ = Player.objects.get_or_create(nickname=nickname)
 
-                # Привязать игрока к команде, если в модели Player есть поле team
                 if hasattr(player_obj, "team") and player_obj.team_id != team_obj.id:
                     player_obj.team = team_obj
                     player_obj.save()
 
-                # Скрапим статы игрока
                 stats_obj: PlayerHLTVStats = self.player_scraper.scrape(stats_url)
 
                 print(
@@ -386,33 +404,18 @@ class HLTVTournamentScraper:
         return tournament_obj
 
 
-# =====================================================================
-# Функция-обёртка для использования из Django view
-# Принимает ИЛИ URL, ИЛИ числовой ID турнира
-# =====================================================================
-
 def import_tournament_full(hltv_id_or_url):
-    """
-    hltv_id_or_url:
-      - либо строка с HLTV URL, например:
-          'https://www.hltv.org/events/8847/tipsport-mcr-2025'
-      - либо просто ID: '8847' или 8847
-    """
-
     raw = str(hltv_id_or_url).strip()
     if not raw:
         raise ValueError("hltvId is empty")
 
-    # Если пользователь вставил полный URL — используем как есть.
     if raw.startswith("http://") or raw.startswith("https://"):
         event_url = raw
     else:
-        # Если это просто число — собираем URL в формате /events/<id>/_/
         event_url = f"{HLTV_BASE}/events/{raw}/_/"
 
     print(f"[IMPORT] Importing tournament from: {event_url}")
 
-    # ВАЖНО: headless=False, как ты запускал вручную
     scraper = HLTVTournamentScraper(headless=False)
     try:
         tournament_obj = scraper.scrape_tournament(event_url)
@@ -420,7 +423,6 @@ def import_tournament_full(hltv_id_or_url):
     finally:
         scraper.close()
 
-    # ====== ПРИВЯЗЫВАЕМ КОМАНДЫ К ТУРНИРУ ЧЕРЕЗ TournamentTeam ======
     created_tteams = 0
     for tdata in teams_data:
         team_name = tdata["name"]
@@ -432,7 +434,6 @@ def import_tournament_full(hltv_id_or_url):
         if created:
             created_tteams += 1
 
-    # создаём / находим лигу под турнир
     league, _ = League.objects.get_or_create(
         name=f"Main league of {tournament_obj.name}",
         defaults={

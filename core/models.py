@@ -7,6 +7,10 @@ class Team(models.Model):
     name = models.CharField(max_length=100, unique=True)
     world_rank = models.IntegerField(null=True, blank=True)
 
+    # HLTV flag on event pages (often region/continent)
+    region_code = models.CharField(max_length=8, null=True, blank=True)
+    region_name = models.CharField(max_length=64, null=True, blank=True)
+
     def __str__(self):
         return self.name
 
@@ -14,6 +18,10 @@ class Team(models.Model):
 class Player(models.Model):
     nickname = models.CharField(max_length=100, unique=True)
     team = models.ForeignKey(Team, on_delete=models.SET_NULL, null=True, blank=True, related_name="players")
+
+    # HLTV nationality flag (e.g. RU / Russia)
+    nationality_code = models.CharField(max_length=8, null=True, blank=True)
+    nationality_name = models.CharField(max_length=64, null=True, blank=True)
 
     def __str__(self):
         return self.nickname

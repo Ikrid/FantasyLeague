@@ -685,8 +685,8 @@ class LeagueStandingsView(APIView):
 
 class TournamentTopPlayersView(APIView):
     """
-    Топ-8 самых часто выбранных игроков по турниру.
     GET /api/tournaments/<tournament_id>/top-players/
+    Топ-8 самых часто выбранных игроков по турниру + флаг игрока.
     """
     permission_classes = [AllowAny]
 
@@ -705,7 +705,10 @@ class TournamentTopPlayersView(APIView):
         )
 
         player_ids = [row["player_id"] for row in qs]
-        players_by_id = {p.id: p for p in Player.objects.filter(id__in=player_ids)}
+        players_by_id = {
+            p.id: p
+            for p in Player.objects.select_related("team").filter(id__in=player_ids)
+        }
 
         top_players = []
         for row in qs:
@@ -713,31 +716,64 @@ class TournamentTopPlayersView(APIView):
             player = players_by_id.get(pid)
 
             if player is not None:
-                name = None
-                for attr in ("nickname", "name", "full_name"):
-                    if hasattr(player, attr):
-                        name = getattr(player, attr)
-                        if name:
-                            break
-                if not name:
-                    name = str(player)
+                name = (
+                    getattr(player, "nickname", None)
+                    or getattr(player, "name", None)
+                    or getattr(player, "full_name", None)
+                    or str(player)
+                )
+                nationality = (
+                    getattr(player, "nationality_code", None)
+                    or getattr(player, "country_code", None)
+                    or ""
+                )
             else:
                 name = f"Player {pid}"
+                nationality = ""
 
-            top_players.append(
-                {
-                    "player_id": pid,
-                    "player_name": name,
-                    "picks_count": row["picks_count"],
-                }
-            )
+            top_players.append({
+                "player_id": pid,
+                "player_name": name,
+                "picks_count": row["picks_count"],
+                "player_nationality_code": nationality,
+            })
 
-        return Response(
-            {
-                "tournament": {"id": tournament.id, "name": tournament.name},
-                "top_players": top_players,
-            }
+        return Response({
+            "tournament": {"id": tournament.id, "name": tournament.name},
+            "top_players": top_players,
+        })
+
+
+
+class TournamentTopRolesView(APIView):
+    """
+    GET /api/tournaments/<tournament_id>/top-roles/
+    Самые выбранные роли в целом по турниру.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, tournament_id):
+        try:
+            tournament = Tournament.objects.get(pk=tournament_id)
+        except Tournament.DoesNotExist:
+            return Response({"detail": "Tournament not found"}, status=404)
+
+        qs = (
+            FantasyRoster.objects
+            .filter(fantasy_team__league__tournament=tournament)
+            .exclude(role_badge__isnull=True)
+            .exclude(role_badge="")
+            .values("role_badge")
+            .annotate(picks_count=Count("id"))
+            .order_by("-picks_count", "role_badge")[:8]
         )
+
+        top_roles = [{"role_badge": r["role_badge"], "picks_count": r["picks_count"]} for r in qs]
+
+        return Response({
+            "tournament": {"id": tournament.id},
+            "top_roles": top_roles,
+        })
 
 class FantasyPointsByMapView(APIView):
     permission_classes = [IsAdminUser]

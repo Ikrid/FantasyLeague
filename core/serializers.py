@@ -58,10 +58,31 @@ class FantasyTeamSerializer(serializers.ModelSerializer):
 
 class FantasyRosterSerializer(serializers.ModelSerializer):
     player_name = serializers.CharField(source='player.nickname', read_only=True)
+    team_id = serializers.IntegerField(source='player.team.id', read_only=True)
+    team_name = serializers.CharField(source='player.team.name', read_only=True)
+
+    # NEW: flags
+    player_nationality_code = serializers.CharField(source='player.nationality_code', read_only=True)
+    player_nationality_name = serializers.CharField(source='player.nationality_name', read_only=True)
+    team_region_code = serializers.CharField(source='player.team.region_code', read_only=True)
+    team_region_name = serializers.CharField(source='player.team.region_name', read_only=True)
 
     class Meta:
         model = FantasyRoster
-        fields = ["id", "fantasy_team", "player", "player_name", "role_badge", "locked_until"]
+        fields = [
+            "id",
+            "fantasy_team",
+            "player",
+            "player_name",
+            "team_id",
+            "team_name",
+            "player_nationality_code",
+            "player_nationality_name",
+            "team_region_code",
+            "team_region_name",
+            "role_badge",
+            "locked_until",
+        ]
 
 
 class MatchSerializer(serializers.ModelSerializer):
