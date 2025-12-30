@@ -616,47 +616,66 @@ class LeagueStandingsView(APIView):
             FantasyTeam.objects
             .filter(league=league)
             .select_related("user", "league")
-            .annotate(
-                total_points=Case(
-                    When(
-                        roster_locked=True,
-                        then=Coalesce(Sum("fantasypoints__points"), 0.0),
-                    ),
-                    default=Value(0.0),
-                    output_field=FloatField(),
-                ),
-                roster_size=Count("fantasyroster", distinct=True),
-            )
-            .order_by("-total_points", "id")
+            .annotate(roster_size=Count("fantasyroster", distinct=True))
+            .order_by("id")
         )
 
         total_teams = base_qs.count()
         total_pages = ceil(total_teams / page_size) if total_teams else 1
-
         if page > total_pages:
             page = total_pages
 
         start = (page - 1) * page_size
         end = start + page_size
 
-        teams_page = base_qs[start:end]
+        teams_page = list(base_qs[start:end])
+        team_ids = [ft.id for ft in teams_page]
+
+        # 1) текущие игроки ростера по каждой команде
+        roster_rows = (
+            FantasyRoster.objects
+            .filter(fantasy_team_id__in=team_ids)
+            .values("fantasy_team_id", "player_id")
+        )
+        roster_players = {}
+        for rr in roster_rows:
+            roster_players.setdefault(rr["fantasy_team_id"], set()).add(rr["player_id"])
+
+        # 2) очки по игрокам (всем), потом отфильтруем по текущему ростеру
+        points_rows = (
+            FantasyPoints.objects
+            .filter(fantasy_team_id__in=team_ids)
+            .values("fantasy_team_id", "player_id")
+            .annotate(pts=Coalesce(Sum("points"), 0.0))
+        )
+
+        points_by_team = {}
+        for pr in points_rows:
+            points_by_team.setdefault(pr["fantasy_team_id"], {})[pr["player_id"]] = float(pr["pts"] or 0.0)
+
+        # 3) total_points = сумма только по текущим игрокам ростера
+        computed = []
+        for ft in teams_page:
+            pid_set = roster_players.get(ft.id, set())
+            pmap = points_by_team.get(ft.id, {})
+            total_pts = sum(pmap.get(pid, 0.0) for pid in pid_set)
+            computed.append((ft, total_pts))
+
+        # 4) сортировка как в ladder: points desc, id asc
+        computed.sort(key=lambda x: (-x[1], x[0].id))
 
         ladder = []
-        for idx, ft in enumerate(teams_page, start=0):
-            rank = start + idx + 1  # глобальный ранг
-            pts = float(ft.total_points or 0)
-
-            ladder.append(
-                {
-                    "rank": rank,
-                    "fantasy_team_id": ft.id,
-                    "team_name": ft.user_name,  # название команды в лиге
-                    "user_name": ft.user.username if ft.user_id else None,
-                    "total_points": pts,
-                    "roster_size": ft.roster_size,
-                    "budget_left": ft.budget_left,
-                }
-            )
+        for idx, (ft, pts) in enumerate(computed, start=0):
+            rank = start + idx + 1
+            ladder.append({
+                "rank": rank,
+                "fantasy_team_id": ft.id,
+                "team_name": ft.user_name,
+                "user_name": ft.user.username if ft.user_id else None,
+                "total_points": float(pts),
+                "roster_size": ft.roster_size,
+                "budget_left": ft.budget_left,
+            })
 
         league_data = {
             "id": league.id,

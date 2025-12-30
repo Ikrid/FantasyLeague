@@ -128,6 +128,128 @@ function Select({ label, value, onChange, options }) {
     </label>
   );
 }
+
+/* ✅ NEW: searchable + paginated dropdown for all "choose ..." */
+function ComboSelect({
+  label,
+  value,
+  onChange,
+  options,
+  pageSize = 12,
+  searchPlaceholder = "Search...",
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const wrapRef = useRef(null);
+
+  // close on outside click
+  useEffect(() => {
+    function onDown(e) {
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, []);
+
+  // reset pagination on search / open
+  useEffect(() => {
+    setPage(1);
+  }, [q, open]);
+
+  const normalized = useMemo(() => {
+    const list = Array.isArray(options) ? options : [];
+    // keep your first placeholder option (value "")
+    return list;
+  }, [options]);
+
+  const selectedLabel = useMemo(() => {
+    const found = normalized.find((o) => String(o.value) === String(value));
+    return found?.label ?? "";
+  }, [normalized, value]);
+
+  const filtered = useMemo(() => {
+    const query = (q || "").trim().toLowerCase();
+    if (!query) return normalized;
+    return normalized.filter((o) => (o.label || "").toLowerCase().includes(query));
+  }, [normalized, q]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageSafe = Math.min(Math.max(1, page), totalPages);
+
+  const paginated = useMemo(() => {
+    const start = (pageSafe - 1) * pageSize;
+    return filtered.slice(start, start + pageSize);
+  }, [filtered, pageSafe, pageSize]);
+
+  return (
+    <label className="block space-y-2" ref={wrapRef}>
+      {label && <div className="text-lg text-zinc-300">{label}</div>}
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left rounded-xl bg-zinc-900/60 border border-zinc-700 px-5 py-4 text-lg text-white outline-none focus:ring-2 focus:ring-white/30"
+      >
+        {selectedLabel || "— choose —"}
+      </button>
+
+      {open && (
+        <div className="relative">
+          <div className="absolute z-[80] mt-2 w-full rounded-2xl border border-white/10 bg-zinc-950 shadow-2xl overflow-hidden">
+            <div className="p-4 border-b border-white/10">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full rounded-xl bg-zinc-900/60 border border-zinc-700 px-4 py-3 text-lg text-white outline-none focus:ring-2 focus:ring-white/30"
+              />
+            </div>
+
+            <div className="max-h-[320px] overflow-y-auto">
+              {paginated.map((o) => (
+                <button
+                  key={String(o.value)}
+                  type="button"
+                  onClick={() => {
+                    onChange(String(o.value));
+                    setOpen(false);
+                  }}
+                  className={`w-full text-left px-5 py-3 text-lg border-b border-white/5 hover:bg-white/10 ${
+                    String(o.value) === String(value) ? "bg-white text-black" : "text-white"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+              {!paginated.length && <div className="px-5 py-4 text-lg text-zinc-400">No results</div>}
+            </div>
+
+            <div className="p-4 flex items-center justify-between border-t border-white/10 text-lg text-zinc-300">
+              <span>
+                Page {pageSafe} of {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button variant="ghost" disabled={pageSafe === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  Prev
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={pageSafe === totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </label>
+  );
+}
+
 function Card({ title, action, children }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-8">
@@ -367,13 +489,13 @@ function CreateMatchModal({
     <Modal title="Create Match" onClose={onClose}>
       <div className="grid gap-5">
         <div className="grid lg:grid-cols-2 gap-5">
-          <Select label="Tournament" value={mTid} onChange={setMTid} options={tOpts} />
+          <ComboSelect label="Tournament" value={mTid} onChange={setMTid} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
           <Input label="Start time (YYYY-MM-DDTHH:mm)" value={mStart} onChange={setMStart} />
         </div>
 
         <div className="grid lg:grid-cols-2 gap-5">
-          <Select label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} />
-          <Select label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} />
+          <ComboSelect label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
+          <ComboSelect label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
         </div>
 
         <label className="block space-y-2">
@@ -749,7 +871,10 @@ function MatchDetailsModal({ matchId, onClose }) {
   }
 
   return (
-    <Modal title={match ? `Match #${match.id} — ${match.team1_name} vs ${match.team2_name}` : `Match #${matchId}`} onClose={onClose}>
+    <Modal
+      title={match ? `Match #${match.id} — ${match.team1_name} vs ${match.team2_name}` : `Match #${matchId}`}
+      onClose={onClose}
+    >
       {loading ? (
         <Note>Loading…</Note>
       ) : (
@@ -992,6 +1117,7 @@ export default function AdminPage() {
   const [tab, setTab] = useState("market");
 
   const PAGE_SIZE = 10;
+  const ML_PAGE_SIZE = 10; // ✅ ДОБАВЛЕНО: пагинация матчей
 
   const [tournaments, setTournaments] = useState([]);
   const [leagues, setLeagues] = useState([]);
@@ -1040,6 +1166,8 @@ export default function AdminPage() {
   const [mlLoading, setMlLoading] = useState(false);
   const [mlErr, setMlErr] = useState("");
   const [openMatchId, setOpenMatchId] = useState(null);
+
+  const [mlPage, setMlPage] = useState(1); // ✅ ДОБАВЛЕНО: страница матчей
 
   const [showCreateMatch, setShowCreateMatch] = useState(false);
 
@@ -1427,6 +1555,18 @@ export default function AdminPage() {
     );
   }, [mlMatches, mlQuery]);
 
+  // ✅ ДОБАВЛЕНО: сброс страницы матчей при смене фильтров
+  useEffect(() => {
+    setMlPage(1);
+  }, [mlTournament, mlQuery]);
+
+  // ✅ ДОБАВЛЕНО: пагинация матчей
+  const mlTotalPages = Math.max(1, Math.ceil(mlFiltered.length / ML_PAGE_SIZE));
+  const mlPaginated = useMemo(() => {
+    const start = (mlPage - 1) * ML_PAGE_SIZE;
+    return mlFiltered.slice(start, start + ML_PAGE_SIZE);
+  }, [mlFiltered, mlPage]);
+
   if (!me) return <div className="min-h-screen bg-black text-white p-10 text-lg">Loading…</div>;
 
   const tabBtn = (name) => (
@@ -1469,7 +1609,7 @@ export default function AdminPage() {
           <div className="mt-10 grid md:grid-cols-2 gap-7">
             <Card title="Generate Market">
               <div className="grid gap-5">
-                <Select label="Tournament" value={tid} onChange={setTid} options={tOpts} />
+                <ComboSelect label="Tournament" value={tid} onChange={setTid} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
                 <div className="grid grid-cols-2 gap-5">
                   <Input label="Budget" value={budget} onChange={setBudget} />
                   <Input label="Slots" value={slots} onChange={setSlots} />
@@ -1509,16 +1649,16 @@ export default function AdminPage() {
             </Card>
             <Card title="Link Team → Tournament">
               <div className="grid gap-5">
-                <Select label="Team" value={ttTeam} onChange={setTtTeam} options={teamOpts} />
-                <Select label="Tournament" value={ttTournament} onChange={setTtTournament} options={tOpts} />
+                <ComboSelect label="Team" value={ttTeam} onChange={setTtTeam} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
+                <ComboSelect label="Tournament" value={ttTournament} onChange={setTtTournament} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
                 <Button onClick={linkTeamToTournament_tt}>Link</Button>
               </div>
             </Card>
             <Card title="Create Match (quick)">
               <div className="grid gap-5">
-                <Select label="Tournament" value={mTid} onChange={setMTid} options={tOpts} />
-                <Select label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} />
-                <Select label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} />
+                <ComboSelect label="Tournament" value={mTid} onChange={setMTid} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
+                <ComboSelect label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
+                <ComboSelect label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
                 <Input label="Start time (YYYY-MM-DDTHH:mm)" value={mStart} onChange={setMStart} />
                 <label className="block space-y-2">
                   <div className="text-lg text-zinc-300">BO</div>
@@ -1550,8 +1690,8 @@ export default function AdminPage() {
             </Card>
             <Card title="Link Team → Tournament">
               <div className="grid gap-5">
-                <Select label="Team" value={ltTeam} onChange={setLtTeam} options={teamOpts} />
-                <Select label="Tournament" value={ltTournament} onChange={setLtTournament} options={tOpts} />
+                <ComboSelect label="Team" value={ltTeam} onChange={setLtTeam} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
+                <ComboSelect label="Tournament" value={ltTournament} onChange={setLtTournament} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
                 <Button onClick={linkTeamToTournament}>Link</Button>
               </div>
             </Card>
@@ -1564,45 +1704,19 @@ export default function AdminPage() {
             <Card title="Create Player">
               <div className="grid gap-5">
                 <Input label="Nickname" value={playerNickname} onChange={setPlayerNickname} />
-                <Select label="Team" value={playerTeam} onChange={setPlayerTeam} options={teamOpts} />
+                <ComboSelect label="Team" value={playerTeam} onChange={setPlayerTeam} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
                 <Button onClick={createPlayer}>Create Player</Button>
               </div>
             </Card>
             <Card title="Link Player → Team (no jump)">
               <div className="grid gap-5">
-                <Select label="Player" value={lpPlayer} onChange={setLpPlayerNoJump} options={playerOpts} />
-                <Select label="Team" value={lpTeam} onChange={setLpTeamNoJump} options={teamOpts} />
+                <ComboSelect label="Player" value={lpPlayer} onChange={setLpPlayerNoJump} options={playerOpts} pageSize={12} searchPlaceholder="Search player..." />
+                <ComboSelect label="Team" value={lpTeam} onChange={setLpTeamNoJump} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
                 <Button onClick={linkPlayerToTeam}>Link</Button>
               </div>
             </Card>
           </div>
         )}
-
-        {/* LEAGUE */}
-        {tab === "league" && (
-          <div className="mt-10 grid lg:grid-cols-2 gap-7">
-            <Card title="Create League">
-              <div className="grid gap-5">
-                <Input label="Name" value={leagueName} onChange={setLeagueName} />
-                <Select label="Tournament" value={leagueTid} onChange={setLeagueTid} options={tOpts} />
-                <div className="grid grid-cols-2 gap-5">
-                  <Input label="Budget" value={leagueBudget} onChange={setLeagueBudget} />
-                  <Input label="Max badges" value={leagueBadges} onChange={setLeagueBadges} />
-                </div>
-                <Input label="Lock policy" value={leagueLock} onChange={setLeagueLock} placeholder="soft / hard" />
-                <Button onClick={createLeague}>Create League</Button>
-              </div>
-            </Card>
-            <Card title="Link League → Tournament">
-              <div className="grid gap-5">
-                <Select label="League" value={llLeague} onChange={setLlLeague} options={leagueOpts} />
-                <Select label="Tournament" value={llTournament} onChange={setLlTournament} options={tOpts} />
-                <Button onClick={linkLeagueToTournament}>Link</Button>
-              </div>
-            </Card>
-          </div>
-        )}
-
         {/* MATCHES */}
         {tab === "matches" && (
           <div className="mt-10 grid gap-7">
@@ -1618,7 +1732,7 @@ export default function AdminPage() {
               }
             >
               <div className="grid md:grid-cols-2 gap-5">
-                <Select label="Tournament" value={mlTournament} onChange={setMlTournament} options={tOpts} />
+                <ComboSelect label="Tournament" value={mlTournament} onChange={setMlTournament} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
                 <Input label="Search (team names)" value={mlQuery} onChange={setMlQuery} placeholder="NaVi, Vitality, etc." />
               </div>
 
@@ -1639,7 +1753,7 @@ export default function AdminPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {mlFiltered.map((m) => (
+                        {mlPaginated.map((m) => (
                           <tr key={m.id} className="border-t border-white/10">
                             <td className="py-4 pr-3">{m.id}</td>
                             <td className="py-4 pr-3">{m.team1_name}</td>
@@ -1651,7 +1765,7 @@ export default function AdminPage() {
                             </td>
                           </tr>
                         ))}
-                        {!mlFiltered.length && (
+                        {!mlPaginated.length && (
                           <tr>
                             <td className="py-5 text-zinc-400" colSpan={6}>
                               No matches found.
@@ -1660,6 +1774,27 @@ export default function AdminPage() {
                         )}
                       </tbody>
                     </table>
+
+                    {/* ✅ ДОБАВЛЕНО: пагинация матчей */}
+                    {mlTotalPages > 1 && (
+                      <div className="mt-4 flex items-center justify-between text-lg text-zinc-300">
+                        <span>
+                          Page {mlPage} of {mlTotalPages}
+                        </span>
+                        <div className="flex gap-2">
+                          <Button variant="ghost" disabled={mlPage === 1} onClick={() => setMlPage((p) => Math.max(1, p - 1))}>
+                            Prev
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            disabled={mlPage === mlTotalPages}
+                            onClick={() => setMlPage((p) => Math.min(mlTotalPages, p + 1))}
+                          >
+                            Next
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
                 {!mlTournament && <Note>Choose tournament to see matches.</Note>}

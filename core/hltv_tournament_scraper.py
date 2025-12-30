@@ -371,6 +371,9 @@ class HLTVTournamentScraper:
             if update_fields:
                 team_obj.save(update_fields=update_fields)
 
+            # ✅ ДОБАВЛЕНО: актуальный состав (для удаления старых игроков из team)
+            current_player_ids = set()
+
             # игроки + статы
             for pdata in tdata["players"]:
                 nickname = pdata["nickname"]
@@ -381,7 +384,10 @@ class HLTVTournamentScraper:
 
                 if hasattr(player_obj, "team") and player_obj.team_id != team_obj.id:
                     player_obj.team = team_obj
-                    player_obj.save()
+                    player_obj.save(update_fields=["team"])
+
+                # ✅ ДОБАВЛЕНО: отмечаем игрока как актуального для этой команды
+                current_player_ids.add(player_obj.id)
 
                 stats_obj: PlayerHLTVStats = self.player_scraper.scrape(stats_url)
 
@@ -399,6 +405,9 @@ class HLTVTournamentScraper:
                     f"util_adr={stats_obj.utility_damage_per_round}, "
                     f"flash={stats_obj.flash_assists_per_round}"
                 )
+
+            # ✅ ДОБАВЛЕНО: снять старых игроков с team (они остаются в базе, просто team=None)
+            Player.objects.filter(team=team_obj).exclude(id__in=current_player_ids).update(team=None)
 
         print("[DONE] Турнир полностью проскрапен.")
         return tournament_obj
