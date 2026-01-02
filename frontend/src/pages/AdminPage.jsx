@@ -8,6 +8,93 @@ const getToken = () => localStorage.getItem("access");
 const clearToken = () => localStorage.removeItem("access");
 const authHeader = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
 
+const COUNTRIES = [
+  { code: "", name: "—" },
+  { code: "AF", name: "Afghanistan" },
+  { code: "AL", name: "Albania" },
+  { code: "DZ", name: "Algeria" },
+  { code: "AR", name: "Argentina" },
+  { code: "AM", name: "Armenia" },
+  { code: "AU", name: "Australia" },
+  { code: "AT", name: "Austria" },
+  { code: "AZ", name: "Azerbaijan" },
+  { code: "BD", name: "Bangladesh" },
+  { code: "BY", name: "Belarus" },
+  { code: "BE", name: "Belgium" },
+  { code: "BA", name: "Bosnia and Herzegovina" },
+  { code: "BR", name: "Brazil" },
+  { code: "BG", name: "Bulgaria" },
+  { code: "CA", name: "Canada" },
+  { code: "CL", name: "Chile" },
+  { code: "CN", name: "China" },
+  { code: "CO", name: "Colombia" },
+  { code: "HR", name: "Croatia" },
+  { code: "CZ", name: "Czechia" },
+  { code: "DK", name: "Denmark" },
+  { code: "EG", name: "Egypt" },
+  { code: "EE", name: "Estonia" },
+  { code: "FI", name: "Finland" },
+  { code: "FR", name: "France" },
+  { code: "GE", name: "Georgia" },
+  { code: "DE", name: "Germany" },
+  { code: "GR", name: "Greece" },
+  { code: "HU", name: "Hungary" },
+  { code: "IS", name: "Iceland" },
+  { code: "IN", name: "India" },
+  { code: "ID", name: "Indonesia" },
+  { code: "IR", name: "Iran" },
+  { code: "IQ", name: "Iraq" },
+  { code: "IE", name: "Ireland" },
+  { code: "IL", name: "Israel" },
+  { code: "IT", name: "Italy" },
+  { code: "JP", name: "Japan" },
+  { code: "KZ", name: "Kazakhstan" },
+  { code: "KE", name: "Kenya" },
+  { code: "KG", name: "Kyrgyzstan" },
+  { code: "LV", name: "Latvia" },
+  { code: "LT", name: "Lithuania" },
+  { code: "LU", name: "Luxembourg" },
+  { code: "MY", name: "Malaysia" },
+  { code: "MX", name: "Mexico" },
+  { code: "MD", name: "Moldova" },
+  { code: "MN", name: "Mongolia" },
+  { code: "ME", name: "Montenegro" },
+  { code: "MA", name: "Morocco" },
+  { code: "NL", name: "Netherlands" },
+  { code: "NZ", name: "New Zealand" },
+  { code: "NG", name: "Nigeria" },
+  { code: "NO", name: "Norway" },
+  { code: "PK", name: "Pakistan" },
+  { code: "PE", name: "Peru" },
+  { code: "PH", name: "Philippines" },
+  { code: "PL", name: "Poland" },
+  { code: "PT", name: "Portugal" },
+  { code: "RO", name: "Romania" },
+  { code: "RU", name: "Russia" },
+  { code: "RS", name: "Serbia" },
+  { code: "SG", name: "Singapore" },
+  { code: "SK", name: "Slovakia" },
+  { code: "SI", name: "Slovenia" },
+  { code: "ZA", name: "South Africa" },
+  { code: "KR", name: "South Korea" },
+  { code: "ES", name: "Spain" },
+  { code: "SE", name: "Sweden" },
+  { code: "CH", name: "Switzerland" },
+  { code: "SY", name: "Syria" },
+  { code: "TW", name: "Taiwan" },
+  { code: "TJ", name: "Tajikistan" },
+  { code: "TH", name: "Thailand" },
+  { code: "TN", name: "Tunisia" },
+  { code: "TR", name: "Turkey" },
+  { code: "UA", name: "Ukraine" },
+  { code: "AE", name: "United Arab Emirates" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "US", name: "United States" },
+  { code: "UZ", name: "Uzbekistan" },
+  { code: "VE", name: "Venezuela" },
+  { code: "VN", name: "Vietnam" },
+];
+
 async function apiGet(path, needsAuth = true) {
   const r = await fetch(`${BASE_URL}${path}`, { headers: needsAuth ? authHeader() : {} });
   const d = await r.json().catch(() => ({}));
@@ -320,9 +407,13 @@ function TournamentRow({ t, onSave, onDelete }) {
 function TeamRow({ t, onSave, onDelete }) {
   const [name, setName] = useState(t.name || "");
   const [rank, setRank] = useState(t.world_rank ?? "");
+  const [regionCode, setRegionCode] = useState(t.region_code || "");
+  const [regionName, setRegionName] = useState(t.region_name || "");
   useEffect(() => {
     setName(t.name || "");
     setRank(t.world_rank ?? "");
+    setRegionCode(t.region_code || "");
+    setRegionName(t.region_name || "");
   }, [t]);
   return (
     <tr className="border-t border-white/10">
@@ -334,8 +425,26 @@ function TeamRow({ t, onSave, onDelete }) {
         <InlineText value={rank} onChange={setRank} />
       </td>
       <td className="py-4 pr-3">
+        <select
+          className="w-full rounded-xl bg-black/40 border border-white/10 px-3 py-2 text-sm"
+          value={regionCode}
+          onChange={(e) => {
+            const v = e.target.value;
+            setRegionCode(v);
+            const found = COUNTRIES.find((c) => c.code === v);
+            setRegionName(found ? found.name : "");
+          }}
+        >
+          {COUNTRIES.map((c) => (
+            <option key={c.code || "__empty"} value={c.code}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="py-4 pr-3">
         <div className="flex gap-2">
-          <Button onClick={() => onSave(t.id, { name, world_rank: rank || null })}>Save</Button>
+          <Button onClick={() => onSave(t.id, { name, world_rank: rank || null, region_code: regionCode || null, region_name: regionName || null })}>Save</Button>
           <Button variant="ghost" onClick={() => onDelete(t.id, `Delete team "${t.name}"?`)}>
             Delete
           </Button>
@@ -347,10 +456,16 @@ function TeamRow({ t, onSave, onDelete }) {
 function PlayerRow({ p, teams, onSave, onDelete }) {
   const [nick, setNick] = useState(p.nickname || "");
   const [teamId, setTeamId] = useState(String(p.team || ""));
+  const [countryCode, setCountryCode] = useState(p.country_code || p.nationality_code || "");
+  const [countryName, setCountryName] = useState(p.country_name || p.nationality_name || "");
+
   useEffect(() => {
     setNick(p.nickname || "");
     setTeamId(String(p.team || ""));
+    setCountryCode(p.country_code || p.nationality_code || "");
+    setCountryName(p.country_name || p.nationality_name || "");
   }, [p]);
+
   return (
     <tr className="border-t border-white/10">
       <td className="py-4 pr-3 text-lg">{p.id}</td>
@@ -371,9 +486,42 @@ function PlayerRow({ p, teams, onSave, onDelete }) {
           ))}
         </select>
       </td>
+
+      <td className="py-4 pr-3">
+        <select
+          className="w-full rounded-xl bg-black/40 border border-white/10 px-3 py-2 text-sm"
+          value={countryCode}
+          onChange={(e) => {
+            const v = e.target.value;
+            setCountryCode(v);
+            const found = COUNTRIES.find((c) => c.code === v);
+            setCountryName(found ? found.name : "");
+          }}
+        >
+          {COUNTRIES.map((c) => (
+            <option key={c.code || "__empty"} value={c.code}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </td>
+
       <td className="py-4 pr-3">
         <div className="flex gap-2">
-          <Button onClick={() => onSave(p.id, { nickname: nick, team: teamId ? Number(teamId) : null })}>Save</Button>
+          <Button
+            onClick={() =>
+onSave(p.id, {
+  nickname: nick,
+  team: teamId ? Number(teamId) : null,
+  country_code: countryCode || null,
+  country_name: countryName || null,
+  nationality_code: countryCode || null,
+  nationality_name: countryName || null,
+})
+            }
+          >
+            Save
+          </Button>
           <Button variant="ghost" onClick={() => onDelete(p.id, `Delete player "${p.nickname}"?`)}>
             Delete
           </Button>
@@ -1138,11 +1286,15 @@ export default function AdminPage() {
 
   const [teamName, setTeamName] = useState("");
   const [teamRank, setTeamRank] = useState("");
+  const [teamRegionCode, setTeamRegionCode] = useState("");
+  const [teamRegionName, setTeamRegionName] = useState("");
   const [ltTeam, setLtTeam] = useState("");
   const [ltTournament, setLtTournament] = useState("");
 
   const [playerNickname, setPlayerNickname] = useState("");
   const [playerTeam, setPlayerTeam] = useState("");
+  const [playerCountryCode, setPlayerCountryCode] = useState("");
+  const [playerCountryName, setPlayerCountryName] = useState("");
   const [lpPlayer, setLpPlayer] = useState("");
   const [lpTeam, setLpTeam] = useState("");
 
@@ -1233,6 +1385,11 @@ export default function AdminPage() {
     () => [{ value: "", label: "— choose team —" }, ...teams.map((t) => ({ value: String(t.id), label: t.name }))],
     [teams]
   );
+  const countryOpts = useMemo(
+    () => [{ value: "", label: "— choose country —" }, ...COUNTRIES.filter((c) => c.code !== "").map((c) => ({ value: c.code, label: c.name }))],
+    []
+  );
+
 
   const playerOpts = useMemo(
     () => [{ value: "", label: "— choose player —" }, ...players.map((p) => ({ value: String(p.id), label: p.nickname }))],
@@ -1386,10 +1543,12 @@ export default function AdminPage() {
     setMsg("");
     if (!teamName) return setMsg("Team: name required");
     try {
-      await apiPost("/teams/", { name: teamName, world_rank: teamRank ? Number(teamRank) : null });
+      await apiPost("/teams/", { name: teamName, world_rank: teamRank ? Number(teamRank) : null, region_code: teamRegionCode || null, region_name: teamRegionName || null });
       setMsg("Team created");
       setTeamName("");
       setTeamRank("");
+      setTeamRegionCode("");
+      setTeamRegionName("");
       await refreshAll();
     } catch (e) {
       setMsg(String(e.message || e));
@@ -1411,10 +1570,19 @@ export default function AdminPage() {
     setMsg("");
     if (!playerNickname || !playerTeam) return setMsg("Player: nickname & team required");
     try {
-      await apiPost("/players/", { nickname: playerNickname, team: Number(playerTeam) });
+await apiPost("/players/", {
+  nickname: playerNickname,
+  team: Number(playerTeam),
+  country_code: playerCountryCode || null,
+  country_name: playerCountryName || null,
+  nationality_code: playerCountryCode || null,
+  nationality_name: playerCountryName || null,
+});
       setMsg("Player created");
       setPlayerNickname("");
       setPlayerTeam("");
+      setPlayerCountryCode("");
+      setPlayerCountryName("");
       await refreshAll();
     } catch (e) {
       setMsg(String(e.message || e));
@@ -1654,27 +1822,6 @@ export default function AdminPage() {
                 <Button onClick={linkTeamToTournament_tt}>Link</Button>
               </div>
             </Card>
-            <Card title="Create Match (quick)">
-              <div className="grid gap-5">
-                <ComboSelect label="Tournament" value={mTid} onChange={setMTid} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
-                <ComboSelect label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
-                <ComboSelect label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
-                <Input label="Start time (YYYY-MM-DDTHH:mm)" value={mStart} onChange={setMStart} />
-                <label className="block space-y-2">
-                  <div className="text-lg text-zinc-300">BO</div>
-                  <select
-                    value={mBo}
-                    onChange={(e) => setMBo(e.target.value)}
-                    className="w-full rounded-xl bg-zinc-900/60 border border-zinc-700 px-5 py-4 text-lg text-white outline-none focus:ring-2 focus:ring-white/30"
-                  >
-                    <option value="1">BO1</option>
-                    <option value="3">BO3</option>
-                    <option value="5">BO5</option>
-                  </select>
-                </label>
-                <Button onClick={() => setShowCreateMatch(true)}>Open Create Match</Button>
-              </div>
-            </Card>
           </div>
         )}
 
@@ -1685,6 +1832,18 @@ export default function AdminPage() {
               <div className="grid gap-5">
                 <Input label="Name" value={teamName} onChange={setTeamName} />
                 <Input label="World rank (optional)" value={teamRank} onChange={setTeamRank} />
+                <ComboSelect
+                  label="Country"
+                  value={teamRegionCode}
+                  onChange={(v) => {
+                    setTeamRegionCode(v);
+                    const found = COUNTRIES.find((c) => c.code === v);
+                    setTeamRegionName(found ? found.name : "");
+                  }}
+                  options={countryOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search country..."
+                />
                 <Button onClick={createTeam}>Create Team</Button>
               </div>
             </Card>
@@ -1705,6 +1864,18 @@ export default function AdminPage() {
               <div className="grid gap-5">
                 <Input label="Nickname" value={playerNickname} onChange={setPlayerNickname} />
                 <ComboSelect label="Team" value={playerTeam} onChange={setPlayerTeam} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
+                <ComboSelect
+                  label="Country (optional)"
+                  value={playerCountryCode}
+                  onChange={(v) => {
+                    setPlayerCountryCode(v);
+                    const found = COUNTRIES.find((c) => c.code === v);
+                    setPlayerCountryName(found ? found.name : "");
+                  }}
+                  options={countryOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search country..."
+                />
                 <Button onClick={createPlayer}>Create Player</Button>
               </div>
             </Card>
@@ -1868,6 +2039,7 @@ export default function AdminPage() {
                       <th className="py-4 pr-3">ID</th>
                       <th className="py-4 pr-3">Name</th>
                       <th className="py-4 pr-3">Rank</th>
+                      <th className="py-4 pr-3">Country</th>
                       <th className="py-4 pr-3">Actions</th>
                     </tr>
                   </thead>
@@ -1877,7 +2049,7 @@ export default function AdminPage() {
                     ))}
                     {filteredTeams.length === 0 && (
                       <tr>
-                        <td className="py-6 text-zinc-400" colSpan={4}>
+                        <td className="py-6 text-zinc-400" colSpan={5}>
                           No teams
                         </td>
                       </tr>
@@ -1913,6 +2085,7 @@ export default function AdminPage() {
                       <th className="py-4 pr-3">ID</th>
                       <th className="py-4 pr-3">Nickname</th>
                       <th className="py-4 pr-3">Team</th>
+                      <th className="py-4 pr-3">Country</th>
                       <th className="py-4 pr-3">Actions</th>
                     </tr>
                   </thead>
@@ -1922,7 +2095,7 @@ export default function AdminPage() {
                     ))}
                     {filteredPlayers.length === 0 && (
                       <tr>
-                        <td className="py-6 text-zinc-400" colSpan={4}>
+                        <td className="py-6 text-zinc-400" colSpan={5}>
                           No players
                         </td>
                       </tr>

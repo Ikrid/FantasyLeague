@@ -34,7 +34,7 @@ async function apiPost(path, body) {
 /* ================== FLAGS (local /public/flags/*.svg) ================== */
 function normalizeFlagCode(raw) {
   if (!raw) return "";
-  return String(raw).trim().toLowerCase(); // 👈 lowercase под твои файлы
+  return String(raw).trim().toLowerCase(); // lowercase for /public/flags
 }
 
 function FlagImg({ code, className = "" }) {
@@ -45,7 +45,7 @@ function FlagImg({ code, className = "" }) {
 
   return (
     <img
-      src={`/flags/${norm}.svg`} // 👈 ru.svg, eu.svg и т.д.
+      src={`/flags/${norm}.svg`}
       alt={norm}
       className={`inline-block ${className}`}
       loading="lazy"
@@ -91,20 +91,34 @@ function Pill({ children }) {
   );
 }
 
-function Modal({ open, onClose, title, children, footer }) {
+/*
+  Modal updated:
+  - optional containerClassName to control width/height without breaking existing calls
+  - optional bodyClassName to allow scroll areas
+*/
+function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer,
+  containerClassName = "",
+  bodyClassName = "",
+}) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="relative w-full max-w-2xl rounded-2xl bg-zinc-950 border border-zinc-800 p-6 mx-4">
+      <div
+        className={`relative w-full max-w-2xl rounded-2xl bg-zinc-950 border border-zinc-800 p-6 mx-4 ${containerClassName}`}
+      >
         <div className="flex items-center justify-between mb-4">
-          {/* title теперь может быть ReactNode, не только string */}
           <h3 className="text-xl font-semibold text-white">{title}</h3>
           <button onClick={onClose} className="text-zinc-400 hover:text-white">
             ✕
           </button>
         </div>
-        <div className="space-y-4">{children}</div>
+        <div className={`space-y-4 ${bodyClassName}`}>{children}</div>
         {footer && <div className="mt-6">{footer}</div>}
       </div>
     </div>
@@ -209,6 +223,197 @@ const ROLE_DETAILS = {
 function roleLabel(code) {
   const found = ROLE_OPTIONS.find((r) => r.code === (code || ""));
   return found ? found.label : String(code || "");
+}
+
+/* ================== FINISHED MATCHES HELPERS ================== */
+function pickFirst(obj, keys) {
+  if (!obj) return undefined;
+  for (const k of keys) {
+    if (obj[k] !== undefined && obj[k] !== null) return obj[k];
+  }
+  return undefined;
+}
+
+function normalizeBreakdown(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((x, idx) => {
+        if (!x) return null;
+        if (typeof x === "string") return { key: String(idx), label: x };
+        if (typeof x === "number")
+          return { key: String(idx), label: `#${idx + 1}`, points: x };
+        if (typeof x === "object") {
+          const label =
+            x.label || x.name || x.key || x.metric || x.stat || `#${idx + 1}`;
+          const value = pickFirst(x, ["value", "count", "raw", "stat_value"]);
+          const points = pickFirst(x, ["points", "pts", "score", "fantasy_pts"]);
+          return {
+            key: String(x.key || x.metric || x.stat || idx),
+            label: String(label),
+            value:
+              value !== undefined && value !== null && value !== ""
+                ? value
+                : undefined,
+            points:
+              typeof points === "number"
+                ? points
+                : points != null && !Number.isNaN(Number(points))
+                ? Number(points)
+                : undefined,
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof raw === "object") {
+    return Object.entries(raw).map(([k, v]) => {
+      if (v && typeof v === "object") {
+        const value = pickFirst(v, ["value", "count", "raw", "stat_value"]);
+        const points = pickFirst(v, ["points", "pts", "score", "fantasy_pts"]);
+        return {
+          key: k,
+          label: k,
+          value:
+            value !== undefined && value !== null && value !== ""
+              ? value
+              : undefined,
+          points:
+            typeof points === "number"
+              ? points
+              : points != null && !Number.isNaN(Number(points))
+              ? Number(points)
+              : undefined,
+        };
+      }
+      if (typeof v === "number") return { key: k, label: k, points: v };
+      return { key: k, label: k, value: v };
+    });
+  }
+
+  return [];
+}
+
+function normalizeFinishedRosterMatches(raw, rosterIdsSet) {
+  const list = Array.isArray(raw) ? raw : raw?.results || raw?.data || [];
+  if (!Array.isArray(list)) return [];
+
+  // Case A: array of matches with embedded players
+  if (list.length && (list[0]?.players || list[0]?.roster_players)) {
+    const out = [];
+    for (const m of list) {
+      const playersRaw = m.players || m.roster_players || [];
+      const players = (playersRaw || [])
+        .filter((p) => rosterIdsSet?.has(Number(p.player_id || p.playerId)))
+        .map((p) => ({
+          playerId: Number(p.player_id || p.playerId),
+          playerName: p.player_name || p.playerName || "Unknown",
+          playerFlagCode:
+            p.player_nationality_code ||
+            p.nationality_code ||
+            p.player_flag_code ||
+            p.country_code ||
+            "",
+          points: pickFirst(p, [
+            "points",
+            "fantasy_points",
+            "fantasy_pts",
+            "total_points",
+          ]),
+          breakdown:
+            p.breakdown || p.points_breakdown || p.explain || p.point_breakdown,
+          stats: p.stats || p.player_stats || p.performance || null,
+          raw: p,
+        }));
+
+      out.push({
+        key: String(m.match_id || m.id || m.matchId || m.match?.id),
+        matchId: Number(m.match_id || m.id || m.matchId || m.match?.id),
+        team1Name:
+          m.team1_name ||
+          m.team1 ||
+          m.team_1_name ||
+          m.match?.team1_name ||
+          "Team 1",
+        team2Name:
+          m.team2_name ||
+          m.team2 ||
+          m.team_2_name ||
+          m.match?.team2_name ||
+          "Team 2",
+        startTime: m.start_time || m.startTime || m.match?.start_time || null,
+        bo: m.bo || m.best_of || m.match?.bo || null,
+        players,
+        raw: m,
+      });
+    }
+    out.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+    return out;
+  }
+
+  // Case B: flat array of player-match rows -> group by match
+  const groups = new Map();
+  for (const row of list) {
+    const pid = Number(row.player_id || row.playerId);
+    if (rosterIdsSet && !rosterIdsSet.has(pid)) continue;
+
+    const mid = Number(row.match_id || row.matchId || row.match?.id || row.id);
+    if (!mid) continue;
+
+    const key = String(mid);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        matchId: mid,
+        team1Name:
+          row.team1_name ||
+          row.match?.team1_name ||
+          row.team1 ||
+          row.match_team1_name ||
+          "Team 1",
+        team2Name:
+          row.team2_name ||
+          row.match?.team2_name ||
+          row.team2 ||
+          row.match_team2_name ||
+          "Team 2",
+        startTime: row.start_time || row.match?.start_time || null,
+        bo: row.bo || row.match?.bo || null,
+        players: [],
+        raw: row,
+      });
+    }
+
+    groups.get(key).players.push({
+      playerId: pid,
+      playerName: row.player_name || row.playerName || "Unknown",
+      playerFlagCode:
+        row.player_nationality_code ||
+        row.nationality_code ||
+        row.player_flag_code ||
+        row.country_code ||
+        "",
+      points: pickFirst(row, [
+        "points",
+        "fantasy_points",
+        "fantasy_pts",
+        "total_points",
+      ]),
+      breakdown:
+        row.breakdown ||
+        row.points_breakdown ||
+        row.explain ||
+        row.point_breakdown,
+      stats: row.stats || row.player_stats || row.performance || null,
+      raw: row,
+    });
+  }
+
+  const out = Array.from(groups.values());
+  out.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+  return out;
 }
 
 /* ================== ROLE PICKER MODAL ================== */
@@ -335,6 +540,160 @@ function RolesModal({
   );
 }
 
+/* ================== MAP/POINTS VIEW HELPERS ================== */
+function safeNum(x, d = 0) {
+  if (x == null) return d;
+  const n = typeof x === "number" ? x : Number(x);
+  return Number.isFinite(n) ? n : d;
+}
+
+function mergeBreakdowns(breakdowns) {
+  // Accepts array of breakdown objects/arrays, returns a single object with summed points.
+  const acc = {};
+  for (const b of breakdowns || []) {
+    if (!b) continue;
+
+    if (Array.isArray(b)) {
+      // best effort: treat as list of items with possible key/label/points
+      for (let i = 0; i < b.length; i++) {
+        const it = b[i];
+        if (it == null) continue;
+        if (typeof it === "number") {
+          const k = `#${i + 1}`;
+          acc[k] = (acc[k] || 0) + it;
+          continue;
+        }
+        if (typeof it === "string") {
+          const k = it;
+          acc[k] = acc[k] || 0;
+          continue;
+        }
+        if (typeof it === "object") {
+          const k = String(it.key || it.metric || it.stat || it.label || i);
+          const pts = pickFirst(it, ["points", "pts", "score", "fantasy_pts"]);
+          acc[k] = (acc[k] || 0) + safeNum(pts, 0);
+        }
+      }
+      continue;
+    }
+
+    if (typeof b === "object") {
+      for (const [k, v] of Object.entries(b)) {
+        if (v && typeof v === "object") {
+          const pts = pickFirst(v, ["points", "pts", "score", "fantasy_pts"]);
+          acc[k] = (acc[k] || 0) + safeNum(pts, 0);
+        } else if (typeof v === "number") {
+          acc[k] = (acc[k] || 0) + v;
+        } else {
+          acc[k] = acc[k] || 0;
+        }
+      }
+      continue;
+    }
+  }
+  return acc;
+}
+
+function computeAllMapsView(fmData) {
+  const maps = Array.isArray(fmData?.maps) ? fmData.maps : [];
+  const out = {
+    total_points: safeNum(fmData?.total_points, 0),
+    kills: 0,
+    deaths: 0,
+    assists: 0,
+    hs: 0,
+    opening_kills: 0,
+    opening_deaths: 0,
+    flash_assists: 0,
+    mk_3k: 0,
+    mk_4k: 0,
+    mk_5k: 0,
+    cl_1v2: 0,
+    cl_1v3: 0,
+    cl_1v4: 0,
+    cl_1v5: 0,
+    utility_dmg: 0,
+    adr_avg: null,
+    rating2_avg: null,
+    breakdown: null,
+  };
+
+  if (!maps.length) return out;
+
+  let adrWeightedSum = 0;
+  let ratingWeightedSum = 0;
+  let weightSum = 0;
+
+  const bList = [];
+
+  for (const m of maps) {
+    const st = m?.stats || {};
+    out.kills += safeNum(st.kills, 0);
+    out.deaths += safeNum(st.deaths, 0);
+    out.assists += safeNum(st.assists, 0);
+    out.hs += safeNum(st.hs, 0);
+    out.opening_kills += safeNum(st.opening_kills, 0);
+    out.opening_deaths += safeNum(st.opening_deaths, 0);
+    out.flash_assists += safeNum(st.flash_assists, 0);
+    out.mk_3k += safeNum(st.mk_3k, 0);
+    out.mk_4k += safeNum(st.mk_4k, 0);
+    out.mk_5k += safeNum(st.mk_5k, 0);
+    out.cl_1v2 += safeNum(st.cl_1v2, 0);
+    out.cl_1v3 += safeNum(st.cl_1v3, 0);
+    out.cl_1v4 += safeNum(st.cl_1v4, 0);
+    out.cl_1v5 += safeNum(st.cl_1v5, 0);
+    out.utility_dmg += safeNum(st.utility_dmg, 0);
+
+    // averages: weight by played_rounds when available, otherwise equal weight
+    const w = safeNum(m?.played_rounds, 0) || 1;
+    const adr = st.adr;
+    const rating2 = st.rating2;
+
+    if (adr != null) {
+      adrWeightedSum += safeNum(adr, 0) * w;
+    }
+    if (rating2 != null) {
+      ratingWeightedSum += safeNum(rating2, 0) * w;
+    }
+    weightSum += w;
+
+    if (m?.breakdown) bList.push(m.breakdown);
+  }
+
+  if (weightSum > 0) {
+    out.adr_avg = adrWeightedSum / weightSum;
+    out.rating2_avg = ratingWeightedSum / weightSum;
+  }
+
+  out.breakdown = mergeBreakdowns(bList);
+  return out;
+}
+
+function computeSingleMapView(mapRow) {
+  const st = mapRow?.stats || {};
+  return {
+    total_points: safeNum(mapRow?.points, 0),
+    kills: safeNum(st.kills, 0),
+    deaths: safeNum(st.deaths, 0),
+    assists: safeNum(st.assists, 0),
+    hs: safeNum(st.hs, 0),
+    opening_kills: safeNum(st.opening_kills, 0),
+    opening_deaths: safeNum(st.opening_deaths, 0),
+    flash_assists: safeNum(st.flash_assists, 0),
+    mk_3k: safeNum(st.mk_3k, 0),
+    mk_4k: safeNum(st.mk_4k, 0),
+    mk_5k: safeNum(st.mk_5k, 0),
+    cl_1v2: safeNum(st.cl_1v2, 0),
+    cl_1v3: safeNum(st.cl_1v3, 0),
+    cl_1v4: safeNum(st.cl_1v4, 0),
+    cl_1v5: safeNum(st.cl_1v5, 0),
+    utility_dmg: safeNum(st.utility_dmg, 0),
+    adr_avg: st.adr != null ? safeNum(st.adr, 0) : null,
+    rating2_avg: st.rating2 != null ? safeNum(st.rating2, 0) : null,
+    breakdown: mapRow?.breakdown || null,
+  };
+}
+
 /* ================== DRAFT PAGE ================== */
 export default function DraftPage() {
   const { leagueId } = useParams();
@@ -344,6 +703,110 @@ export default function DraftPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [matches, setMatches] = useState([]);
+  // Derived lists: keep "Upcoming" truly upcoming; treat past/finished as finished fallback.
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowTs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const isFinishedByFlag = (m) => {
+    const s = String(m?.status || m?.state || "").toLowerCase();
+    return Boolean(
+      m?.finished === true ||
+        m?.is_finished === true ||
+        m?.isFinished === true ||
+        m?.completed === true ||
+        m?.is_completed === true ||
+        s === "finished" ||
+        s === "completed" ||
+        s === "ended"
+    );
+  };
+  const upcomingMatches = (matches || []).filter((m) => {
+    const t = new Date(m?.start_time || m?.startTime || 0).getTime();
+    if (!Number.isFinite(t)) return false;
+    return t > nowTs && !isFinishedByFlag(m);
+  });
+  const implicitFinishedMatches = (matches || []).filter((m) => {
+    const t = new Date(m?.start_time || m?.startTime || 0).getTime();
+    if (!Number.isFinite(t)) return false;
+    return t <= nowTs || isFinishedByFlag(m);
+  });
+
+  const normTeam = (s) => String(s || "").trim().toLowerCase();
+
+  const extractMatchPlayerIdSet = (m) => {
+    const ids = new Set();
+    const pushFromArray = (arr) => {
+      if (!Array.isArray(arr)) return;
+      for (const x of arr) {
+        if (x == null) continue;
+        if (typeof x === "number") {
+          if (Number.isFinite(x)) ids.add(Number(x));
+          continue;
+        }
+        if (typeof x === "string") {
+          const n = Number(x);
+          if (Number.isFinite(n)) ids.add(n);
+          continue;
+        }
+        if (typeof x === "object") {
+          const n = Number(
+            x.player_id || x.playerId || x.id || x.pk || x.player || x.user_id
+          );
+          if (Number.isFinite(n) && n) ids.add(n);
+        }
+      }
+    };
+
+    pushFromArray(m?.player_ids);
+    pushFromArray(m?.playerIds);
+    pushFromArray(m?.participants);
+    pushFromArray(m?.players);
+    pushFromArray(m?.team1_players);
+    pushFromArray(m?.team2_players);
+    pushFromArray(m?.team1Players);
+    pushFromArray(m?.team2Players);
+    pushFromArray(m?.lineup);
+    pushFromArray(m?.lineups);
+    pushFromArray(m?.team1?.players);
+    pushFromArray(m?.team2?.players);
+
+    return ids;
+  };
+
+  const rosterPlayersInMatchByTeams = (matchLike) => {
+    const t1 = normTeam(matchLike?.team1Name || matchLike?.team1_name);
+    const t2 = normTeam(matchLike?.team2Name || matchLike?.team2_name);
+    if (!t1 && !t2) return [];
+
+    const byTeam = (rosterPlayersForFinishedFallback || []).filter((p) => {
+      const pt = normTeam(p?.teamName);
+      if (!pt) return false;
+      return (t1 && pt === t1) || (t2 && pt === t2);
+    });
+
+    const idSet = extractMatchPlayerIdSet(matchLike);
+    if (idSet.size) {
+      return byTeam.filter((p) => idSet.has(Number(p.playerId)));
+    }
+    return byTeam;
+  };
+
+  /* ===== FINISHED MATCHES OF ROSTER PLAYERS ===== */
+  const [finishedRosterMatches, setFinishedRosterMatches] = useState([]);
+  const [finishedRosterLoading, setFinishedRosterLoading] = useState(false);
+  const [finishedRosterErr, setFinishedRosterErr] = useState("");
+
+  const [finishedMatchPick, setFinishedMatchPick] = useState(null); // { matchId, team1Name, team2Name, startTime, bo, players }
+
+  const [finishedPick, setFinishedPick] = useState(null); // { match, player }
+  const [fmLoading, setFmLoading] = useState(false);
+  const [fmErr, setFmErr] = useState("");
+  const [fmData, setFmData] = useState(null);
+
+  // NEW: selected map in finished player modal
+  const [fmMapPick, setFmMapPick] = useState("ALL"); // "ALL" or map_id string/number
 
   const [selected, setSelected] = useState(null);
   const [statLoading, setStatLoading] = useState(false);
@@ -392,6 +855,54 @@ export default function DraftPage() {
   const canUnlock = state?.can_unlock === true;
 
   const roster = state?.roster || [];
+  const rosterIdsKey = useMemo(
+    () => (roster || []).map((r) => r?.player_id).filter(Boolean).join(","),
+    [roster]
+  );
+
+  const rosterPlayersForFinishedFallback = useMemo(() => {
+    return (roster || []).filter(Boolean).map((r) => ({
+      playerId: Number(r.player_id),
+      playerName: r.player_name || r.nickname || "Unknown",
+      teamName: r.team_name || r.team || r.teamName || "",
+      playerFlagCode:
+        r.player_nationality_code ||
+        r.nationality_code ||
+        r.player_flag_code ||
+        r.country_code ||
+        "",
+      raw: r,
+    }));
+  }, [roster]);
+
+  const finishedMatchesDisplay = useMemo(() => {
+    if (finishedRosterMatches?.length) return finishedRosterMatches;
+
+    const mapped = (implicitFinishedMatches || [])
+      .map((mm) => {
+        const matchLike = {
+          team1Name: mm.team1_name || mm.team1 || mm.team_1_name || "Team 1",
+          team2Name: mm.team2_name || mm.team2 || mm.team_2_name || "Team 2",
+          startTime: mm.start_time || mm.startTime || null,
+        };
+        const players = rosterPlayersInMatchByTeams(mm);
+        return {
+          key: `m_${mm.id}`,
+          matchId: mm.id,
+          team1Name: matchLike.team1Name,
+          team2Name: matchLike.team2Name,
+          startTime: matchLike.startTime,
+          bo: mm.bo || mm.best_of || null,
+          players,
+          raw: mm,
+        };
+      })
+      .filter((x) => x.players?.length);
+
+    mapped.sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0));
+    return mapped;
+  }, [finishedRosterMatches, implicitFinishedMatches, rosterPlayersForFinishedFallback]);
+
   const budgetLeft = state?.fantasy_team?.budget_left ?? 0;
   const maxSlots = state?.limits?.slots ?? 5;
   const maxPerTeam = state?.limits?.max_per_team ?? 2;
@@ -435,11 +946,20 @@ export default function DraftPage() {
           (m) => Number(m.tournament) === Number(tournamentId)
         );
         only.sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
-        setMatches(only.slice(0, 10));
+        setMatches(only.slice(0, 50));
       } catch {}
     }
+
     loadMatches();
-  }, [tournamentId, finished]);
+
+    // Finished roster matches are derived from /matches (see finishedMatchesDisplay fallback).
+    // Keep API-driven list empty to avoid 404 spam.
+    setFinishedRosterMatches([]);
+    setFinishedRosterLoading(false);
+    setFinishedRosterErr("");
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId, tournamentId, rosterIdsKey, finished]);
 
   const market = useMemo(() => (state?.market || []).slice(), [state]);
 
@@ -458,7 +978,6 @@ export default function DraftPage() {
           teamName: p.team_name || "Unknown team",
           worldRank:
             typeof p.team_world_rank === "number" ? p.team_world_rank : null,
-          // NEW: team region code if your API returns it
           teamRegionCode:
             p.team_region_code ||
             p.region_code ||
@@ -619,7 +1138,44 @@ export default function DraftPage() {
     }
   }
 
-  // NEW: флаги для модалки (best-effort, ничего не ломает)
+  /* ===== FINISHED MATCH PLAYER MODAL ===== */
+  async function openFinishedMatchPlayer(matchItem, playerItem) {
+    if (!matchItem || !playerItem) return;
+
+    setFinishedPick({ match: matchItem, player: playerItem });
+    setFmData(null);
+    setFmErr("");
+    setFmLoading(true);
+    setFmMapPick("ALL");
+
+    try {
+      const matchId =
+        matchItem.matchId || matchItem.match_id || matchItem.id || matchItem?.match?.id;
+      const playerId = playerItem.playerId || playerItem.player_id;
+
+      const qs = new URLSearchParams();
+      qs.set("league_id", String(leagueId));
+      if (tournamentId) qs.set("tournament", String(tournamentId));
+      qs.set("match_id", String(matchId));
+      qs.set("player_id", String(playerId));
+
+      let data = null;
+
+      try {
+        data = await apiGet(`/draft/player-match-breakdown?${qs.toString()}`, true);
+      } catch (e1) {
+        data = await apiGet(`/draft/player-match-points?${qs.toString()}`, true);
+      }
+
+      setFmData(data);
+    } catch (e) {
+      setFmErr(String(e.message || e));
+    } finally {
+      setFmLoading(false);
+    }
+  }
+
+  // NEW: flags for market modal
   const selectedTeamFlagCode =
     selected?.team_region_code ||
     selected?.team_flag_code ||
@@ -632,6 +1188,110 @@ export default function DraftPage() {
     selected?.player_flag_code ||
     selected?.country_code ||
     "";
+
+  // NEW: finished match map options + computed view
+  const fmMaps = useMemo(() => {
+    const maps = Array.isArray(fmData?.maps) ? fmData.maps : [];
+    return maps.map((m) => ({
+      map_id: m?.map_id,
+      map_name: m?.map_name || `Map ${m?.map_id}`,
+      points: safeNum(m?.points, 0),
+      played_rounds: m?.played_rounds,
+      winner_id: m?.winner_id,
+      breakdown: m?.breakdown || null,
+      stats: m?.stats || null,
+      raw: m,
+    }));
+  }, [fmData]);
+
+  const fmComputed = useMemo(() => {
+    // If breakdown endpoint not available, keep old aggregated (player-match-points) behavior.
+    if (!fmData) return null;
+
+    // If maps exist, compute by map or all maps.
+    if (Array.isArray(fmData?.maps) && fmData.maps.length) {
+      if (fmMapPick === "ALL") return computeAllMapsView(fmData);
+      const mid = Number(fmMapPick);
+      const row = fmMaps.find((x) => Number(x.map_id) === mid);
+      if (!row) return computeAllMapsView(fmData);
+      return computeSingleMapView(row);
+    }
+
+    // fallback: legacy endpoint already returns aggregated fields
+    return {
+      total_points: safeNum(
+        pickFirst(fmData, [
+          "total_points",
+          "totalPoints",
+          "fantasy_points",
+          "fantasyPoints",
+          "fantasy_pts",
+          "points",
+          "score",
+        ]),
+        0
+      ),
+      kills: safeNum(pickFirst(fmData, ["kills", "k"]), 0),
+      deaths: safeNum(pickFirst(fmData, ["deaths", "d"]), 0),
+      assists: safeNum(pickFirst(fmData, ["assists", "a"]), 0),
+      hs: safeNum(pickFirst(fmData, ["hs", "headshots"]), 0),
+      opening_kills: safeNum(
+        pickFirst(fmData, ["opening_kills", "openingKills"]),
+        0
+      ),
+      opening_deaths: safeNum(
+        pickFirst(fmData, ["opening_deaths", "openingDeaths"]),
+        0
+      ),
+      flash_assists: safeNum(
+        pickFirst(fmData, ["flash_assists", "flashAssists"]),
+        0
+      ),
+      utility_dmg: safeNum(
+        pickFirst(fmData, [
+          "utility_dmg_sum",
+          "utilityDmgSum",
+          "utility_dmg",
+          "utilityDmg",
+        ]),
+        0
+      ),
+      mk_3k: safeNum(pickFirst(fmData, ["mk_3k", "mk3k"]), 0),
+      mk_4k: safeNum(pickFirst(fmData, ["mk_4k", "mk4k"]), 0),
+      mk_5k: safeNum(pickFirst(fmData, ["mk_5k", "mk5k"]), 0),
+      cl_1v2: safeNum(pickFirst(fmData, ["cl_1v2", "cl1v2"]), 0),
+      cl_1v3: safeNum(pickFirst(fmData, ["cl_1v3", "cl1v3"]), 0),
+      cl_1v4: safeNum(pickFirst(fmData, ["cl_1v4", "cl1v4"]), 0),
+      cl_1v5: safeNum(pickFirst(fmData, ["cl_1v5", "cl1v5"]), 0),
+      adr_avg: (() => {
+        const v = pickFirst(fmData, ["adr_avg", "adrAvg", "adr"]);
+        return v == null ? null : safeNum(v, 0);
+      })(),
+      rating2_avg: (() => {
+        const v = pickFirst(fmData, ["rating2_avg", "rating2Avg", "rating2"]);
+        return v == null ? null : safeNum(v, 0);
+      })(),
+      breakdown:
+        fmData.points_breakdown ||
+        fmData.breakdown ||
+        fmData.explain ||
+        fmData.point_breakdown ||
+        null,
+    };
+  }, [fmData, fmMapPick, fmMaps]);
+
+  const fmBreakdownRows = useMemo(() => {
+    if (!fmComputed) return [];
+    const raw =
+      fmComputed.breakdown ||
+      fmData?.points_breakdown ||
+      fmData?.breakdown ||
+      fmData?.explain ||
+      fmData?.point_breakdown ||
+      finishedPick?.player?.breakdown ||
+      null;
+    return normalizeBreakdown(raw);
+  }, [fmComputed, fmData, finishedPick]);
 
   return (
     <div className="min-h-screen bg-black text-white p-8 text-base">
@@ -668,7 +1328,7 @@ export default function DraftPage() {
               Upcoming matches
             </h2>
             <div className="flex gap-2 overflow-x-auto pb-2">
-              {matches.map((m) => (
+              {upcomingMatches.map((m) => (
                 <div
                   key={m.id}
                   className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm"
@@ -687,9 +1347,59 @@ export default function DraftPage() {
                   </div>
                 </div>
               ))}
-              {!matches.length && (
+              {!upcomingMatches.length && (
                 <div className="text-sm text-zinc-400">No matches yet.</div>
               )}
+            </div>
+          </section>
+        )}
+
+        {!finished && (
+          <section className="mt-5">
+            <h2 className="text-base font-semibold text-zinc-200 mb-2">
+              Finished matches of your players
+            </h2>
+
+            {finishedRosterLoading && (
+              <div className="text-sm text-zinc-400">Loading…</div>
+            )}
+
+            {finishedRosterErr && (
+              <div className="text-sm text-red-400">{finishedRosterErr}</div>
+            )}
+
+            {!finishedRosterLoading &&
+              !finishedRosterErr &&
+              !finishedMatchesDisplay.length && (
+                <div className="text-sm text-zinc-400">
+                  No finished matches for your roster yet.
+                </div>
+              )}
+
+            <div className="flex gap-2 overflow-x-auto pb-2 mt-2">
+              {finishedMatchesDisplay.map((m) => (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setFinishedMatchPick(m)}
+                  className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-left hover:bg-white/10 transition"
+                >
+                  <div className="font-medium">
+                    {m.team1Name} vs {m.team2Name}
+                  </div>
+                  <div className="text-xs text-zinc-300">
+                    {m.startTime
+                      ? new Date(m.startTime).toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : ""}
+                    {m.bo ? ` · BO${m.bo}` : ""}
+                  </div>
+                </button>
+              ))}
             </div>
           </section>
         )}
@@ -702,7 +1412,6 @@ export default function DraftPage() {
             {Array.from({ length: maxSlots }).map((_, i) => {
               const r = roster[i];
 
-              // NEW: best-effort extraction (supports several possible API keys)
               const teamFlagCode =
                 r?.team_region_code ||
                 r?.team_flag_code ||
@@ -846,7 +1555,6 @@ export default function DraftPage() {
                         );
                         const disabled = !canBuy(p);
 
-                        // NEW: best-effort player flag code from market item
                         const playerFlagCode =
                           p?.player_nationality_code ||
                           p?.nationality_code ||
@@ -916,10 +1624,225 @@ export default function DraftPage() {
 
       {!finished && (
         <Modal
+          open={!!finishedMatchPick}
+          onClose={() => setFinishedMatchPick(null)}
+          title={
+            finishedMatchPick
+              ? `${finishedMatchPick.team1Name} vs ${finishedMatchPick.team2Name}`
+              : " "
+          }
+          footer={
+            <div className="flex items-center justify-end gap-3">
+              <Button variant="ghost" onClick={() => setFinishedMatchPick(null)}>
+                Close
+              </Button>
+            </div>
+          }
+          containerClassName="max-w-4xl"
+          bodyClassName="max-h-[75vh] overflow-y-auto pr-1"
+        >
+          {finishedMatchPick ? (
+            <>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="text-xs text-zinc-400">
+                  {finishedMatchPick.startTime
+                    ? new Date(finishedMatchPick.startTime).toLocaleString()
+                    : ""}
+                  {finishedMatchPick.bo ? ` · BO${finishedMatchPick.bo}` : ""}
+                </div>
+                <div className="text-sm text-zinc-300 mt-2">
+                  Your players in this match
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {(finishedMatchPick.players || []).map((pl) => (
+                  <button
+                    key={pl.playerId}
+                    type="button"
+                    onClick={() => {
+                      const m = finishedMatchPick;
+                      setFinishedMatchPick(null);
+                      openFinishedMatchPlayer(m, pl);
+                    }}
+                    className="rounded-xl border border-white/10 bg-black/40 hover:bg-white/10 px-3 py-2 text-sm transition"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <FlagImg
+                        code={pl.playerFlagCode}
+                        className="h-4 w-6 rounded-[3px] border border-white/10"
+                      />
+                      <span className="font-medium">{pl.playerName}</span>
+                      {pl.points != null && (
+                        <span className="text-zinc-300">
+                          {Number(pl.points).toLocaleString()} pts
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                ))}
+                {!finishedMatchPick.players?.length && (
+                  <div className="text-sm text-zinc-400">
+                    No roster players in this match.
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+        </Modal>
+      )}
+
+      {!finished && (
+        <Modal
+          open={!!finishedPick}
+          onClose={() => {
+            setFinishedPick(null);
+            setFmData(null);
+            setFmErr("");
+            setFmMapPick("ALL");
+          }}
+          title={
+            finishedPick ? (
+              <span className="inline-flex items-center gap-2">
+                <FlagImg
+                  code={finishedPick?.player?.playerFlagCode}
+                  className="h-4 w-6 rounded-[3px] border border-white/10"
+                />
+                <span className="font-semibold">
+                  {finishedPick?.player?.playerName}
+                </span>
+              </span>
+            ) : (
+              " "
+            )
+          }
+          footer={
+            <div className="flex items-center justify-end gap-3">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setFinishedPick(null);
+                  setFmData(null);
+                  setFmErr("");
+                  setFmMapPick("ALL");
+                }}
+              >
+                Close
+              </Button>
+            </div>
+          }
+          containerClassName="max-w-6xl"
+          bodyClassName="max-h-[85vh] overflow-y-auto pr-1"
+        >
+          {!finishedPick ? null : (
+            <>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="text-sm text-zinc-300">
+                  {finishedPick?.match?.team1Name} vs {finishedPick?.match?.team2Name}
+                </div>
+                <div className="text-xs text-zinc-400 mt-1">
+                  {finishedPick?.match?.startTime
+                    ? new Date(finishedPick.match.startTime).toLocaleString()
+                    : ""}
+                  {finishedPick?.match?.bo ? ` · BO${finishedPick.match.bo}` : ""}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h4 className="font-semibold">Match stats & points</h4>
+                  <div className="flex items-center gap-2">
+                    {fmLoading && (
+                      <span className="text-xs text-zinc-400">Loading…</span>
+                    )}
+                    {!!fmMaps.length && (
+                      <select
+                        className="text-sm bg-black/60 border border-white/10 rounded-xl px-3 py-2"
+                        value={String(fmMapPick)}
+                        onChange={(e) => setFmMapPick(e.target.value)}
+                      >
+                        <option value="ALL">All maps</option>
+                        {fmMaps.map((m) => (
+                          <option key={String(m.map_id)} value={String(m.map_id)}>
+                            {m.map_name} ({safeNum(m.points, 0).toFixed(2)} pts)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                {fmErr && <p className="text-sm text-red-400">{fmErr}</p>}
+
+                {!fmLoading && !fmData && !fmErr && (
+                  <p className="text-sm text-zinc-300">No data.</p>
+                )}
+
+                {!fmLoading && fmComputed && (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-6 lg:grid-cols-8 gap-3 text-sm">
+                      <InfoTile
+                        label="Total points"
+                        value={safeNum(fmComputed.total_points, 0).toFixed(2)}
+                      />
+                      <InfoTile label="Kills" value={String(fmComputed.kills)} />
+                      <InfoTile label="Deaths" value={String(fmComputed.deaths)} />
+                      <InfoTile label="Assists" value={String(fmComputed.assists)} />
+                      <InfoTile label="HS" value={String(fmComputed.hs)} />
+                      <InfoTile
+                        label="ADR"
+                        value={
+                          fmComputed.adr_avg != null
+                            ? Number(fmComputed.adr_avg).toFixed(1)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Rating 2.0"
+                        value={
+                          fmComputed.rating2_avg != null
+                            ? Number(fmComputed.rating2_avg).toFixed(2)
+                            : "—"
+                        }
+                      />
+                      <InfoTile
+                        label="Opening K"
+                        value={String(fmComputed.opening_kills)}
+                      />
+                      <InfoTile
+                        label="Opening D"
+                        value={String(fmComputed.opening_deaths)}
+                      />
+                      <InfoTile
+                        label="Flash A"
+                        value={String(fmComputed.flash_assists)}
+                      />
+                      <InfoTile
+                        label="Util dmg"
+                        value={String(Math.round(safeNum(fmComputed.utility_dmg, 0)))}
+                      />
+                      <InfoTile label="3K" value={String(fmComputed.mk_3k)} />
+                      <InfoTile label="4K" value={String(fmComputed.mk_4k)} />
+                      <InfoTile label="5K" value={String(fmComputed.mk_5k)} />
+                      <InfoTile label="1v2" value={String(fmComputed.cl_1v2)} />
+                      <InfoTile label="1v3" value={String(fmComputed.cl_1v3)} />
+                      <InfoTile label="1v4" value={String(fmComputed.cl_1v4)} />
+                      <InfoTile label="1v5" value={String(fmComputed.cl_1v5)} />
+                    </div>
+
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </Modal>
+      )}
+
+      {!finished && (
+        <Modal
           open={!!selected}
           onClose={() => setSelected(null)}
-          title={" "
-          }
+          title={" "}
           footer={
             selected && (
               <div className="flex items-center justify-end gap-3">
@@ -932,8 +1855,7 @@ export default function DraftPage() {
                   }}
                   disabled={!selected || !canBuy(selected)}
                 >
-                  Buy for{" "}
-                  {selected ? Number(selected.price).toLocaleString() : ""}
+                  Buy for {selected ? Number(selected.price).toLocaleString() : ""}
                 </Button>
               </div>
             )
@@ -987,17 +1909,13 @@ export default function DraftPage() {
 
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-semibold">
-                      HLTV stats (last 3 months)
-                    </h4>
+                    <h4 className="font-semibold">HLTV stats (last 3 months)</h4>
                     {statLoading && (
                       <span className="text-xs text-zinc-400">Loading…</span>
                     )}
                   </div>
 
-                  {statErr && (
-                    <p className="text-sm text-red-400">{statErr}</p>
-                  )}
+                  {statErr && <p className="text-sm text-red-400">{statErr}</p>}
 
                   {!statLoading && !stat && !statErr && (
                     <p className="text-sm text-zinc-300">No data.</p>

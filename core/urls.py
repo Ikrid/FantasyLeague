@@ -1,4 +1,5 @@
-﻿from django.urls import path, include
+﻿# core/urls.py
+from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
@@ -10,7 +11,8 @@ from .views import (
     AdminRecalcView, LeagueStandingsView, TournamentTopPlayersView,
     MarketViewSet, MarketGenerateView,
     DraftStateView, DraftBuyView, DraftSellView, DraftLockView, DraftUnlockView,
-    DraftSetRoleView,  # ✅ added
+    DraftSetRoleView,
+    DraftPlayerMatchPointsView, DraftPlayerMatchBreakdownView,  # ✅ added
     RegisterView, MeView,
     PlayerSummaryView, TournamentTeamViewSet,
     MatchPlayersView, HLTVImportView, FantasyPointsByMapView, TournamentTopRolesView,
@@ -40,10 +42,8 @@ urlpatterns = [
     # standings / ladder + турнирная статистика
     path("leagues/<int:league_id>/standings", LeagueStandingsView.as_view()),
     path("leagues/<int:league_id>/ladder/", LeagueStandingsView.as_view()),
-    path(
-        "tournaments/<int:tournament_id>/top-players/",
-        TournamentTopPlayersView.as_view(),
-    ),
+    path("tournaments/<int:tournament_id>/top-players/", TournamentTopPlayersView.as_view()),
+    path("tournaments/<int:tournament_id>/top-roles/", TournamentTopRolesView.as_view()),
 
     # драфт
     path("draft/<int:league_id>/state", DraftStateView.as_view()),
@@ -53,10 +53,14 @@ urlpatterns = [
     path("draft/lock/", DraftLockView.as_view()),
     path("draft/unlock", DraftUnlockView.as_view()),
     path("draft/unlock/", DraftUnlockView.as_view()),
-
-
     path("draft/set-role", DraftSetRoleView.as_view()),
     path("draft/set-role/", DraftSetRoleView.as_view()),
+
+    # ✅ player match points / breakdown
+    path("draft/player-match-points", DraftPlayerMatchPointsView.as_view()),
+    path("draft/player-match-points/", DraftPlayerMatchPointsView.as_view()),
+    path("draft/player-match-breakdown", DraftPlayerMatchBreakdownView.as_view()),
+    path("draft/player-match-breakdown/", DraftPlayerMatchBreakdownView.as_view()),
 
     # player summary
     path("player-summary/<int:player_id>/", PlayerSummaryView.as_view()),
@@ -72,10 +76,7 @@ urlpatterns = [
 
     path("fantasy-points", FantasyPointsByMapView.as_view()),
     path("admin/import-demo", admin_import_demo),
+
     # HLTV импорт турнира
     path("hltv/import-tournament", HLTVImportView.as_view()),
-
-path("tournaments/<int:tournament_id>/top-players/", TournamentTopPlayersView.as_view()),
-path("tournaments/<int:tournament_id>/top-roles/", TournamentTopRolesView.as_view()),
-
 ]

@@ -85,6 +85,50 @@ def extract_map_stats_from_demo(demo_path: str) -> dict:
     rounds: List[Tuple[int, int]] = []
     winners: List[Optional[int]] = []
 
+    def _normalize_winner(w) -> Optional[int]:
+        """
+        demoparser2 round_end.winner can be:
+          - "T" / "CT"
+          - 2 / 3 (team_num)
+          - sometimes 0 / 1 in some builds/parsers
+        Return T_TEAM / CT_TEAM or None.
+        """
+        if w is None or (isinstance(w, float) and pd.isna(w)):
+            return None
+
+        # string cases
+        if isinstance(w, str):
+            s = w.strip().upper()
+            if s == "T":
+                return T_TEAM
+            if s == "CT":
+                return CT_TEAM
+            # sometimes "2"/"3" as strings
+            if s.isdigit():
+                n = int(s)
+                if n in (T_TEAM, CT_TEAM):
+                    return n
+                if n == 0:
+                    return T_TEAM
+                if n == 1:
+                    return CT_TEAM
+            return None
+
+        # numeric cases
+        try:
+            n = int(w)
+        except Exception:
+            return None
+
+        if n in (T_TEAM, CT_TEAM):
+            return n
+        # fallback mapping (rare)
+        if n == 0:
+            return T_TEAM
+        if n == 1:
+            return CT_TEAM
+        return None
+
     for s in freeze_ticks:
         j = bisect.bisect_right(re_ticks, s)
         if j >= len(re_ticks):
@@ -93,12 +137,8 @@ def extract_map_stats_from_demo(demo_path: str) -> dict:
         rounds.append((int(s), e))
 
         row = re_df[re_df["tick"] == e].tail(1)
-        w = row["winner"].iloc[0] if len(row) else None
-        if isinstance(w, str):
-            w = w.upper()
-            winners.append(T_TEAM if w == "T" else CT_TEAM if w == "CT" else None)
-        else:
-            winners.append(None)
+        w_raw = row["winner"].iloc[0] if len(row) else None
+        winners.append(_normalize_winner(w_raw))
 
     n_rounds = len(rounds)
 

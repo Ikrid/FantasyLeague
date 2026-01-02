@@ -46,6 +46,25 @@ def _match_demo_teams_to_match(team_score: dict, team1_name: str, team2_name: st
     return best_for_t1, best_for_t2
 
 
+def _to_py_number(v):
+    """
+    demoparser/pandas могут приносить numpy типы.
+    Django обычно ок, но UI/serializer/DB поля иногда ожидают чистый int/float.
+    """
+    try:
+        # bool is also int, keep it
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return v
+        # numpy scalars have item()
+        if hasattr(v, "item"):
+            return v.item()
+    except Exception:
+        pass
+    return v
+
+
 @api_view(["POST"])
 @permission_classes([IsAdminUser])
 @parser_classes([MultiPartParser, FormParser])
@@ -87,10 +106,20 @@ def admin_import_demo(request):
         tmp.flush()
         parsed = extract_map_stats_from_demo(tmp.name)
 
-    played_rounds = parsed.get("played_rounds") or 0
+    # ---- FIX: ключи из твоего demo_parser ----
+    # новый парсер: rounds, map_name, players, team_score
+    played_rounds = parsed.get("played_rounds")
+    if played_rounds in (None, 0, "0", ""):
+        played_rounds = parsed.get("rounds")  # <-- твой парсер
+    played_rounds = int(played_rounds or 0)
+
     team_score = parsed.get("team_score") or {}
     players_stats = parsed.get("players") or []
+
     parsed_map_name = parsed.get("map") or None
+    if not parsed_map_name:
+        parsed_map_name = parsed.get("map_name") or None  # <-- твой парсер
+    # -----------------------------------------
 
     # 2) выбрать/создать Map
     if map_id:
@@ -102,14 +131,28 @@ def admin_import_demo(request):
         if not want_create:
             return Response({"detail": "map_id or create_map/create_map_if_missing is required"}, status=400)
 
-        # имя карты: либо пришло с фронта, либо из демо
-        use_map_name = (map_name or parsed_map_name or "").strip()
+        # --- fallback - попытка вытащить карту из имени файла демо (если парсер не дал map_name) ---
+        KNOWN_MAPS = {
+            "ancient", "anubis", "inferno", "mirage", "nuke",
+            "overpass", "vertigo", "dust2", "train", "cache",
+            "cobblestone", "cbble",
+        }
+
+        def _infer_map_from_filename(fname: str) -> str | None:
+            if not fname:
+                return None
+            low = fname.lower()
+            for m in KNOWN_MAPS:
+                if re.search(rf"(^|[^a-z0-9]){re.escape(m)}([^a-z0-9]|$)", low):
+                    return f"de_{m}" if not m.startswith("de_") else m
+            return None
+        # -----------------------------------------------------------------------
+
+        inferred = _infer_map_from_filename(getattr(demo_file, "name", ""))
+        use_map_name = (map_name or parsed_map_name or inferred or "").strip()
         if not use_map_name:
             return Response({"detail": "map_name is required (or demo must contain map name)"}, status=400)
 
-        # индекс:
-        # - если фронт просит create_map_if_missing, берём следующий индекс
-        # - иначе пробуем map_index из запроса, fallback = 1
         if str(create_map_if_missing or "").strip() in {"1", "true", "True", "yes", "on"}:
             mx = Map.objects.filter(match=match).aggregate(m=Max("map_index")).get("m") or 0
             mi = int(mx) + 1
@@ -152,53 +195,62 @@ def admin_import_demo(request):
         name = ps.get("name")
         if not name:
             continue
-        steam_id = ps.get("steam_id") or None
 
-        # найти/создать Player
-        p = None
-        if steam_id:
-            p = Player.objects.filter(steam_id=steam_id).first()
+        # Player steam_id у тебя нет — матчим по nickname
+        p = Player.objects.filter(nickname__iexact=name).first()
         if not p:
-            p = Player.objects.filter(nickname__iexact=name).first()
-
-        if not p:
-            create_kwargs = {}
-            if hasattr(Player, "nickname"):
-                create_kwargs["nickname"] = name
-            elif hasattr(Player, "name"):
-                create_kwargs["name"] = name
-            else:
-                create_kwargs = {"nickname": name}
-
-            if hasattr(Player, "steam_id"):
-                create_kwargs["steam_id"] = steam_id or None
-
-            p = Player.objects.create(**create_kwargs)
+            p = Player.objects.create(nickname=name)
 
         allowed = {f.name for f in PlayerMapStats._meta.fields}
         defaults: dict = {}
 
+        def _to_py(v):
+            try:
+                if hasattr(v, "item"):
+                    v = v.item()
+            except Exception:
+                pass
+            # clamp floats that are ints
+            if isinstance(v, float) and v.is_integer():
+                return int(v)
+            return v
+
+        # БАЗОВЫЕ алиасы
         alias: dict[str, str] = {
             "utility_dmg": "utility_dmg",
+            "rounds_played": "rounds_played",
         }
 
-        # HS: не ломаем, подстраиваемся под реальное поле модели
+        # HS алиас
         if "headshots" in allowed and "hs" not in allowed:
             alias["hs"] = "headshots"
         elif "hs" in allowed and "headshots" not in allowed:
             alias["headshots"] = "hs"
 
+        # КЛАТЧИ: пробуем все реальные варианты имён полей (возьмётся тот, что есть в модели)
+        clutch_map = {
+            "cl_1v2": ["cl_1v2", "clutch_1v2", "clutches_1v2", "clutch1v2", "cl_1v2_wins"],
+            "cl_1v3": ["cl_1v3", "clutch_1v3", "clutches_1v3", "clutch1v3", "cl_1v3_wins"],
+            "cl_1v4": ["cl_1v4", "clutch_1v4", "clutches_1v4", "clutch1v4", "cl_1v4_wins"],
+            "cl_1v5": ["cl_1v5", "clutch_1v5", "clutches_1v5", "clutch1v5", "cl_1v5_wins"],
+        }
+        for src, candidates in clutch_map.items():
+            for cand in candidates:
+                if cand in allowed:
+                    alias[src] = cand
+                    break
+
+        # Остальные поля — как было, но с _to_py
         for k, v in ps.items():
             kk = alias.get(k, k)
             if kk in allowed:
-                defaults[kk] = v
+                defaults[kk] = _to_py(v)
 
-        if hasattr(PlayerMapStats, "map") and hasattr(PlayerMapStats, "player"):
-            PlayerMapStats.objects.update_or_create(
-                map=mp,
-                player=p,
-                defaults=defaults,
-            )
+        PlayerMapStats.objects.update_or_create(
+            map=mp,
+            player=p,
+            defaults=defaults,
+        )
 
     return Response(
         {

@@ -6,7 +6,7 @@ from rest_framework import viewsets, generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.db.models import Sum, Count
+from django.db.models import Sum, Count, Avg
 from django.utils import timezone
 import re
 from django.db.models import Sum, Count, Case, When, Value, FloatField
@@ -252,25 +252,16 @@ class DraftStateView(APIView):
         ft = FantasyTeam.objects.filter(user=user, league=league).first()
         roster_locked = bool(getattr(ft, "roster_locked", False))
 
-        # draft actions disabled если:
-        # - турнир закончился
-        # - или турнир уже начался
-        # - или пользователь нажал Lock
         draft_locked = t_finished or t_started or roster_locked
 
-        # "locked" — оставим как "турнир finished" (как у тебя было),
-        # а "started" используем как "драфт запрещён"
         state["locked"] = t_finished
         state["started"] = draft_locked
 
-        # доп. флаги для UI
         state["roster_locked"] = roster_locked
         state["tournament_started"] = t_started
 
-        # ✅ can_unlock уже было
         state["can_unlock"] = roster_locked and (not t_started) and (not t_finished)
 
-        # ✅ добавил can_lock (удобно фронту)
         slots = getattr(league, "max_badges", None) or getattr(league, "slots", None) or 5
         roster_count = 0
         if ft:
@@ -354,7 +345,6 @@ class DraftLockView(APIView):
         if _tournament_started(t):
             return Response({"error": "Tournament already started. Draft is locked."}, status=403)
 
-        # ✅ Lock через services.py (единая логика)
         result = handle_draft_lock(request.user, int(league_id))
         if "error" in result:
             return Response(result, status=400)
@@ -378,7 +368,6 @@ class DraftUnlockView(APIView):
         if _tournament_started(t):
             return Response({"error": "Tournament already started. Can't unlock."}, status=403)
 
-        # ✅ Unlock через services.py (единая логика)
         result = handle_draft_unlock(request.user, int(league_id))
         if "error" in result:
             return Response(result, status=400)
@@ -413,11 +402,9 @@ class DraftSetRoleView(APIView):
         if getattr(ft, "roster_locked", False):
             return Response({"error": "Roster is locked. Unlock to edit."}, status=403)
 
-        # normalize
         if role_badge is not None and str(role_badge).strip() == "":
             role_badge = None
 
-        # validate
         if role_badge is not None and str(role_badge) not in ROLES:
             return Response({"error": "Unknown role_badge"}, status=400)
 
@@ -460,10 +447,8 @@ class PlayerSummaryView(APIView):
     def get(self, request, player_id):
         tournament_id = request.query_params.get("tournament")
 
-        # 1. Базовые данные, как и раньше
         data = get_player_summary(player_id, tournament_id) or {}
 
-        # 2. Подмешиваем HLTV-статы, если есть
         hltv = PlayerHLTVStats.objects.filter(player_id=player_id).first()
         if hltv:
             data.update({
@@ -507,17 +492,6 @@ class HLTVImportView(APIView):
     permission_classes = [IsAdminUser]
 
     def post(self, request, *args, **kwargs):
-        """
-        Принимаем ИЛИ URL, ИЛИ id турнира:
-        - frontend может прислать hltvId, hltv_id, hltv или url
-        - если это URL, просто прокидываем его дальше как есть
-        - если это число — тоже передаём строкой (как раньше)
-
-        Дополнительно:
-        - можно прислать budget и slots (опционально), чтобы сразу
-          сгенерировать рынок для только что импортированного турнира.
-        """
-
         raw = (
             request.data.get("hltvId")
             or request.data.get("hltv_id")
@@ -532,9 +506,8 @@ class HLTVImportView(APIView):
             )
 
         value = str(raw).strip()
-        event_arg = value  # не трогаем, скрапер ждёт строку
+        event_arg = value
 
-        # Параметры для генерации рынка (как в MarketGenerateView)
         try:
             budget = int(request.data.get("budget", 1000000))
             slots = int(request.data.get("slots", 5))
@@ -545,10 +518,8 @@ class HLTVImportView(APIView):
             )
 
         try:
-            # 1. Импорт турнира с HLTV
             result = import_tournament_full(event_arg)
 
-            # 2. Достаём ID турнира, чтобы сгенерировать рынок
             tournament_id = (
                 result.get("tournament_id")
                 or result.get("id")
@@ -561,7 +532,6 @@ class HLTVImportView(APIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-            # 3. Генерация цен/рынка для турнира
             generate_market_prices_for_tournament(
                 int(tournament_id),
                 budget=budget,
@@ -583,25 +553,14 @@ class HLTVImportView(APIView):
 
 # STANDINGS / LADDER
 class LeagueStandingsView(APIView):
-    """
-    Ладдер лиги с пагинацией.
-    GET /api/leagues/<league_id>/ladder/?page=1
-
-    По умолчанию:
-    - page_size = 20
-    - сортировка по total_points DESC, затем id ASC
-    """
-
     permission_classes = [AllowAny]
 
     def get(self, request, league_id):
-        # 1. Лига
         try:
             league = League.objects.select_related("tournament").get(pk=league_id)
         except League.DoesNotExist:
             return Response({"detail": "League not found"}, status=404)
 
-        # 2. Параметры пагинации
         page_size = 20
         raw_page = request.query_params.get("page", "1")
         try:
@@ -611,7 +570,6 @@ class LeagueStandingsView(APIView):
         if page < 1:
             page = 1
 
-        # 3. Базовый queryset по FantasyTeam
         base_qs = (
             FantasyTeam.objects
             .filter(league=league)
@@ -631,7 +589,6 @@ class LeagueStandingsView(APIView):
         teams_page = list(base_qs[start:end])
         team_ids = [ft.id for ft in teams_page]
 
-        # 1) текущие игроки ростера по каждой команде
         roster_rows = (
             FantasyRoster.objects
             .filter(fantasy_team_id__in=team_ids)
@@ -641,7 +598,6 @@ class LeagueStandingsView(APIView):
         for rr in roster_rows:
             roster_players.setdefault(rr["fantasy_team_id"], set()).add(rr["player_id"])
 
-        # 2) очки по игрокам (всем), потом отфильтруем по текущему ростеру
         points_rows = (
             FantasyPoints.objects
             .filter(fantasy_team_id__in=team_ids)
@@ -653,7 +609,6 @@ class LeagueStandingsView(APIView):
         for pr in points_rows:
             points_by_team.setdefault(pr["fantasy_team_id"], {})[pr["player_id"]] = float(pr["pts"] or 0.0)
 
-        # 3) total_points = сумма только по текущим игрокам ростера
         computed = []
         for ft in teams_page:
             pid_set = roster_players.get(ft.id, set())
@@ -661,7 +616,6 @@ class LeagueStandingsView(APIView):
             total_pts = sum(pmap.get(pid, 0.0) for pid in pid_set)
             computed.append((ft, total_pts))
 
-        # 4) сортировка как в ladder: points desc, id asc
         computed.sort(key=lambda x: (-x[1], x[0].id))
 
         ladder = []
@@ -703,10 +657,6 @@ class LeagueStandingsView(APIView):
 
 
 class TournamentTopPlayersView(APIView):
-    """
-    GET /api/tournaments/<tournament_id>/top-players/
-    Топ-8 самых часто выбранных игроков по турниру + флаг игрока.
-    """
     permission_classes = [AllowAny]
 
     def get(self, request, tournament_id):
@@ -763,12 +713,7 @@ class TournamentTopPlayersView(APIView):
         })
 
 
-
 class TournamentTopRolesView(APIView):
-    """
-    GET /api/tournaments/<tournament_id>/top-roles/
-    Самые выбранные роли в целом по турниру.
-    """
     permission_classes = [AllowAny]
 
     def get(self, request, tournament_id):
@@ -794,6 +739,7 @@ class TournamentTopRolesView(APIView):
             "top_roles": top_roles,
         })
 
+
 class FantasyPointsByMapView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -804,7 +750,6 @@ class FantasyPointsByMapView(APIView):
         except Exception:
             return Response({"error": "map must be int"}, status=400)
 
-        # суммарные очки по игроку на этой карте (по всем fantasy_team)
         qs = (
             FantasyPoints.objects
             .filter(map_id=map_id, fantasy_team__roster_locked=True)
@@ -813,3 +758,265 @@ class FantasyPointsByMapView(APIView):
             .order_by("-points", "player__nickname")
         )
         return Response(list(qs))
+
+
+class DraftPlayerMatchPointsView(APIView):
+    """
+    GET /api/draft/player-match-points?league_id=...&match_id=...&player_id=...&tournament=...
+    Суммарные fantasy points игрока за матч (все карты матча) для текущего пользователя в этой лиге.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        league_id = request.query_params.get("league_id")
+        match_id = request.query_params.get("match_id")
+        player_id = request.query_params.get("player_id")
+        tournament_id = request.query_params.get("tournament")
+
+        if not league_id or not match_id or not player_id:
+            return Response(
+                {"detail": "league_id, match_id and player_id are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            league = League.objects.select_related("tournament").get(pk=int(league_id))
+        except Exception:
+            return Response({"detail": "League not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if tournament_id:
+            try:
+                if int(tournament_id) != int(league.tournament_id):
+                    return Response({"detail": "Tournament mismatch"}, status=400)
+            except Exception:
+                pass
+
+        ft = FantasyTeam.objects.filter(user=request.user, league=league).first()
+        if not ft:
+            return Response({"detail": "Fantasy team not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            match = Match.objects.get(pk=int(match_id))
+        except Exception:
+            return Response({"detail": "Match not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if league.tournament_id and getattr(match, "tournament_id", None) and match.tournament_id != league.tournament_id:
+            return Response({"detail": "Match not in this tournament"}, status=400)
+
+        map_ids = list(Map.objects.filter(match=match).values_list("id", flat=True))
+        if not map_ids:
+            return Response(
+                {"detail": "No maps for match", "total_points": 0.0, "stats": {}},
+                status=200,
+            )
+
+        pid = int(player_id)
+
+        total_points = (
+            FantasyPoints.objects
+            .filter(fantasy_team=ft, player_id=pid, map_id__in=map_ids)
+            .aggregate(total=Coalesce(Sum("points"), 0.0))
+            .get("total", 0.0)
+        )
+
+        agg = (
+            PlayerMapStats.objects
+            .filter(player_id=pid, map_id__in=map_ids)
+            .aggregate(
+                kills=Coalesce(Sum("kills"), 0),
+                deaths=Coalesce(Sum("deaths"), 0),
+                assists=Coalesce(Sum("assists"), 0),
+                hs=Coalesce(Sum("hs"), 0),
+                opening_kills=Coalesce(Sum("opening_kills"), 0),
+                opening_deaths=Coalesce(Sum("opening_deaths"), 0),
+                flash_assists=Coalesce(Sum("flash_assists"), 0),
+                mk_3k=Coalesce(Sum("mk_3k"), 0),
+                mk_4k=Coalesce(Sum("mk_4k"), 0),
+                mk_5k=Coalesce(Sum("mk_5k"), 0),
+                utility_dmg_sum=Coalesce(Sum("utility_dmg"), 0.0),
+                utility_dmg_avg=Avg("utility_dmg"),
+                cl_1v2=Coalesce(Sum("cl_1v2"), 0),
+                cl_1v3=Coalesce(Sum("cl_1v3"), 0),
+                cl_1v4=Coalesce(Sum("cl_1v4"), 0),
+                cl_1v5=Coalesce(Sum("cl_1v5"), 0),
+                adr_avg=Avg("adr"),
+                rating2_avg=Avg("rating2"),
+            )
+        )
+
+        played_rounds = (
+            Map.objects
+            .filter(id__in=map_ids)
+            .aggregate(r=Coalesce(Sum("played_rounds"), 0))
+            .get("r", 0)
+        )
+
+        role_badge = (
+            FantasyRoster.objects
+            .filter(fantasy_team=ft, player_id=pid)
+            .values_list("role_badge", flat=True)
+            .first()
+        )
+
+        resp = {
+            "league_id": int(league_id),
+            "tournament_id": int(league.tournament_id) if league.tournament_id else None,
+            "match_id": int(match_id),
+            "player_id": pid,
+            "role_badge": role_badge,
+            "played_rounds": int(played_rounds or 0),
+            "total_points": float(total_points or 0.0),
+            "kills": int(agg["kills"] or 0),
+            "deaths": int(agg["deaths"] or 0),
+            "assists": int(agg["assists"] or 0),
+            "hs": int(agg["hs"] or 0),
+            "opening_kills": int(agg["opening_kills"] or 0),
+            "opening_deaths": int(agg["opening_deaths"] or 0),
+            "flash_assists": int(agg.get("flash_assists") or 0),
+            "mk_3k": int(agg["mk_3k"] or 0),
+            "mk_4k": int(agg["mk_4k"] or 0),
+            "mk_5k": int(agg["mk_5k"] or 0),
+            "utility_dmg_sum": float(agg.get("utility_dmg_sum") or 0.0),
+            "utility_dmg_avg": float(agg.get("utility_dmg_avg")) if agg.get("utility_dmg_avg") is not None else None,
+            "cl_1v2": int(agg["cl_1v2"] or 0),
+            "cl_1v3": int(agg["cl_1v3"] or 0),
+            "cl_1v4": int(agg["cl_1v4"] or 0),
+            "cl_1v5": int(agg["cl_1v5"] or 0),
+            "adr_avg": float(agg["adr_avg"]) if agg["adr_avg"] is not None else None,
+            "rating2_avg": float(agg["rating2_avg"]) if agg["rating2_avg"] is not None else None,
+        }
+        return Response(resp, status=200)
+
+
+class DraftPlayerMatchBreakdownView(APIView):
+    """
+    GET /api/draft/player-match-breakdown?league_id=...&match_id=...&player_id=...&tournament=...
+    По-карточно: points + breakdown из FantasyPoints.breakdown.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        league_id = request.query_params.get("league_id")
+        match_id = request.query_params.get("match_id")
+        player_id = request.query_params.get("player_id")
+        tournament_id = request.query_params.get("tournament")
+
+        if not league_id or not match_id or not player_id:
+            return Response(
+                {"detail": "league_id, match_id and player_id are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            league = League.objects.select_related("tournament").get(pk=int(league_id))
+        except Exception:
+            return Response({"detail": "League not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if tournament_id:
+            try:
+                if int(tournament_id) != int(league.tournament_id):
+                    return Response({"detail": "Tournament mismatch"}, status=400)
+            except Exception:
+                pass
+
+        ft = FantasyTeam.objects.filter(user=request.user, league=league).first()
+        if not ft:
+            return Response({"detail": "Fantasy team not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            match = Match.objects.get(pk=int(match_id))
+        except Exception:
+            return Response({"detail": "Match not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if league.tournament_id and getattr(match, "tournament_id", None) and match.tournament_id != league.tournament_id:
+            return Response({"detail": "Match not in this tournament"}, status=400)
+
+        pid = int(player_id)
+
+        maps_qs = Map.objects.filter(match=match).order_by("id")
+        map_ids = list(maps_qs.values_list("id", flat=True))
+        if not map_ids:
+            return Response(
+                {"detail": "No maps for match", "total_points": 0.0, "maps": []},
+                status=200,
+            )
+
+        fp_rows = (
+            FantasyPoints.objects
+            .filter(fantasy_team=ft, player_id=pid, map_id__in=map_ids)
+            .select_related("map")
+        )
+        fp_by_map = {fp.map_id: fp for fp in fp_rows}
+
+        # ✅ NEW: stаты игрока по каждой карте (для выбора карт на фронте)
+        stats_rows = (
+            PlayerMapStats.objects
+            .filter(player_id=pid, map_id__in=map_ids)
+            .values(
+                "map_id",
+                "kills", "deaths", "assists", "hs",
+                "adr", "rating2",
+                "opening_kills", "opening_deaths",
+                "flash_assists",
+                "cl_1v2", "cl_1v3", "cl_1v4", "cl_1v5",
+                "mk_3k", "mk_4k", "mk_5k",
+                "utility_dmg",
+            )
+        )
+        stats_by_map = {int(r["map_id"]): r for r in stats_rows}
+
+        out_maps = []
+        total = 0.0
+        for gm in maps_qs:
+            fp = fp_by_map.get(gm.id)
+            pts = float(getattr(fp, "points", 0.0) or 0.0)
+            total += pts
+
+            st = stats_by_map.get(int(gm.id)) or {}
+
+            out_maps.append({
+                "map_id": gm.id,
+                "map_name": getattr(gm, "name", None) or getattr(gm, "map_name", None),
+                "played_rounds": getattr(gm, "played_rounds", None),
+                "winner_id": getattr(gm, "winner_id", None),
+                "points": pts,
+                "breakdown": getattr(fp, "breakdown", None) if fp else None,
+
+                # ✅ NEW: статы по этой карте
+                "stats": {
+                    "kills": int(st.get("kills", 0) or 0),
+                    "deaths": int(st.get("deaths", 0) or 0),
+                    "assists": int(st.get("assists", 0) or 0),
+                    "hs": int(st.get("hs", 0) or 0),
+                    "adr": float(st.get("adr", 0.0) or 0.0),
+                    "rating2": float(st.get("rating2", 0.0) or 0.0),
+                    "opening_kills": int(st.get("opening_kills", 0) or 0),
+                    "opening_deaths": int(st.get("opening_deaths", 0) or 0),
+                    "flash_assists": int(st.get("flash_assists", 0) or 0),
+                    "cl_1v2": int(st.get("cl_1v2", 0) or 0),
+                    "cl_1v3": int(st.get("cl_1v3", 0) or 0),
+                    "cl_1v4": int(st.get("cl_1v4", 0) or 0),
+                    "cl_1v5": int(st.get("cl_1v5", 0) or 0),
+                    "mk_3k": int(st.get("mk_3k", 0) or 0),
+                    "mk_4k": int(st.get("mk_4k", 0) or 0),
+                    "mk_5k": int(st.get("mk_5k", 0) or 0),
+                    "utility_dmg": float(st.get("utility_dmg", 0.0) or 0.0),
+                },
+            })
+
+        role_badge = (
+            FantasyRoster.objects
+            .filter(fantasy_team=ft, player_id=pid)
+            .values_list("role_badge", flat=True)
+            .first()
+        )
+
+        return Response({
+            "league_id": int(league_id),
+            "tournament_id": int(league.tournament_id) if league.tournament_id else None,
+            "match_id": int(match_id),
+            "player_id": pid,
+            "role_badge": role_badge,
+            "total_points": float(round(total, 2)),
+            "maps": out_maps,
+        }, status=200)
