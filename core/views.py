@@ -887,7 +887,57 @@ class DraftPlayerMatchPointsView(APIView):
         }
         return Response(resp, status=200)
 
+class AdminSetPlayerPriceView(APIView):
+    permission_classes = [IsAdminUser]
 
+    def post(self, request, *args, **kwargs):
+        tournament_id = request.data.get("tournament_id") or request.data.get("tournament")
+        player_id = request.data.get("player_id")
+        price = request.data.get("price")
+
+        if tournament_id is None or player_id is None or price is None:
+            return Response(
+                {"detail": "tournament_id, player_id and price are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            tournament_id = int(tournament_id)
+            player_id = int(player_id)
+            price = int(price)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "tournament_id, player_id and price must be integers"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if price < 0:
+            return Response(
+                {"detail": "price must be >= 0"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not Tournament.objects.filter(id=tournament_id).exists():
+            return Response({"detail": "Tournament not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        if not Player.objects.filter(id=player_id).exists():
+            return Response({"detail": "Player not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        with transaction.atomic():
+            obj, created = PlayerPrice.objects.update_or_create(
+                tournament_id=tournament_id,
+                player_id=player_id,
+                defaults={
+                    "price": price,
+                    "source": "ADMIN",
+                },
+            )
+
+        data = PlayerPriceSerializer(obj).data
+        return Response(
+            {"ok": True, "created": bool(created), "player_price": data},
+            status=status.HTTP_200_OK,
+        )
 class DraftPlayerMatchBreakdownView(APIView):
     """
     GET /api/draft/player-match-breakdown?league_id=...&match_id=...&player_id=...&tournament=...
@@ -1020,3 +1070,19 @@ class DraftPlayerMatchBreakdownView(APIView):
             "total_points": float(round(total, 2)),
             "maps": out_maps,
         }, status=200)
+
+# MARKET
+class MarketViewSet(viewsets.ModelViewSet):
+    queryset = PlayerPrice.objects.select_related("player", "tournament", "player__team").all().order_by("-updated_at")
+    serializer_class = PlayerPriceSerializer
+    permission_classes = [IsAdminUser]  # было AllowAny
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        t = self.request.query_params.get("tournament")
+        if t:
+            try:
+                qs = qs.filter(tournament_id=int(t))
+            except (TypeError, ValueError):
+                pass
+        return qs

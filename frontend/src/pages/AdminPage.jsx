@@ -216,7 +216,40 @@ function Select({ label, value, onChange, options }) {
   );
 }
 
-/* ✅ NEW: searchable + paginated dropdown for all "choose ..." */
+/* ✅ small toast (success/error/info) */
+function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => onClose?.(), 2200);
+    return () => clearTimeout(t);
+  }, [toast, onClose]);
+
+  if (!toast) return null;
+
+  const isErr = toast.type === "error";
+  const isOk = toast.type === "success";
+
+  const cls = isErr
+    ? "border-red-500/30 bg-red-500/10 text-red-200"
+    : isOk
+    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+    : "border-white/10 bg-white/10 text-zinc-200";
+
+  return (
+    <div className="fixed z-[200] bottom-6 right-6 max-w-[420px]">
+      <div className={`rounded-2xl border px-5 py-4 shadow-2xl backdrop-blur ${cls}`}>
+        <div className="flex items-start gap-3">
+          <div className="flex-1 text-lg">{toast.message}</div>
+          <button className="text-xl leading-none opacity-70 hover:opacity-100" onClick={onClose} title="Close">
+            ✕
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ✅ searchable + paginated dropdown for all "choose ..." */
 function ComboSelect({
   label,
   value,
@@ -230,7 +263,6 @@ function ComboSelect({
   const [page, setPage] = useState(1);
   const wrapRef = useRef(null);
 
-  // close on outside click
   useEffect(() => {
     function onDown(e) {
       if (!wrapRef.current) return;
@@ -240,14 +272,12 @@ function ComboSelect({
     return () => document.removeEventListener("mousedown", onDown);
   }, []);
 
-  // reset pagination on search / open
   useEffect(() => {
     setPage(1);
   }, [q, open]);
 
   const normalized = useMemo(() => {
     const list = Array.isArray(options) ? options : [];
-    // keep your first placeholder option (value "")
     return list;
   }, [options]);
 
@@ -444,7 +474,18 @@ function TeamRow({ t, onSave, onDelete }) {
       </td>
       <td className="py-4 pr-3">
         <div className="flex gap-2">
-          <Button onClick={() => onSave(t.id, { name, world_rank: rank || null, region_code: regionCode || null, region_name: regionName || null })}>Save</Button>
+          <Button
+            onClick={() =>
+              onSave(t.id, {
+                name,
+                world_rank: rank || null,
+                region_code: regionCode || null,
+                region_name: regionName || null,
+              })
+            }
+          >
+            Save
+          </Button>
           <Button variant="ghost" onClick={() => onDelete(t.id, `Delete team "${t.name}"?`)}>
             Delete
           </Button>
@@ -510,14 +551,14 @@ function PlayerRow({ p, teams, onSave, onDelete }) {
         <div className="flex gap-2">
           <Button
             onClick={() =>
-onSave(p.id, {
-  nickname: nick,
-  team: teamId ? Number(teamId) : null,
-  country_code: countryCode || null,
-  country_name: countryName || null,
-  nationality_code: countryCode || null,
-  nationality_name: countryName || null,
-})
+              onSave(p.id, {
+                nickname: nick,
+                team: teamId ? Number(teamId) : null,
+                country_code: countryCode || null,
+                country_name: countryName || null,
+                nationality_code: countryCode || null,
+                nationality_name: countryName || null,
+              })
             }
           >
             Save
@@ -637,13 +678,34 @@ function CreateMatchModal({
     <Modal title="Create Match" onClose={onClose}>
       <div className="grid gap-5">
         <div className="grid lg:grid-cols-2 gap-5">
-          <ComboSelect label="Tournament" value={mTid} onChange={setMTid} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
+          <ComboSelect
+            label="Tournament"
+            value={mTid}
+            onChange={setMTid}
+            options={tOpts}
+            pageSize={12}
+            searchPlaceholder="Search tournament..."
+          />
           <Input label="Start time (YYYY-MM-DDTHH:mm)" value={mStart} onChange={setMStart} />
         </div>
 
         <div className="grid lg:grid-cols-2 gap-5">
-          <ComboSelect label="Team 1" value={mTeam1} onChange={setMTeam1} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
-          <ComboSelect label="Team 2" value={mTeam2} onChange={setMTeam2} options={matchTeamOpts} pageSize={12} searchPlaceholder="Search team..." />
+          <ComboSelect
+            label="Team 1"
+            value={mTeam1}
+            onChange={setMTeam1}
+            options={matchTeamOpts}
+            pageSize={12}
+            searchPlaceholder="Search team..."
+          />
+          <ComboSelect
+            label="Team 2"
+            value={mTeam2}
+            onChange={setMTeam2}
+            options={matchTeamOpts}
+            pageSize={12}
+            searchPlaceholder="Search team..."
+          />
         </div>
 
         <label className="block space-y-2">
@@ -798,13 +860,10 @@ function MatchDetailsModal({ matchId, onClose }) {
     const pref = preferredMapId != null ? String(preferredMapId) : "";
     const cur = mapId ? String(mapId) : "";
     const next =
-      (pref && ids.has(pref)
-        ? pref
-        : cur && ids.has(cur)
-        ? cur
-        : String(getMapId(ms?.[0]) || ""));
+      pref && ids.has(pref) ? pref : cur && ids.has(cur) ? cur : String(getMapId(ms?.[0]) || "");
 
     if (next) setMapId(next);
+    else setMapId(""); // ✅ ensure cleared when last map deleted
   }
 
   async function createMap() {
@@ -841,11 +900,28 @@ function MatchDetailsModal({ matchId, onClose }) {
 
   async function deleteMap(mapObj) {
     setMsg("");
+    const delId = String(getMapId(mapObj) || "");
     try {
+      // ✅ optimistic UI update (no hard refresh needed)
+      setMaps((prev) => (prev || []).filter((x) => String(getMapId(x)) !== delId));
+      if (String(mapId) === delId) {
+        setStats([]);
+        setMapId("");
+      }
+
       await apiDelete(`/maps/${getMapId(mapObj)}/`);
-      await reloadMatchAndMaps();
+
+      // ✅ pick next map immediately
+      const remaining = (maps || []).filter((x) => String(getMapId(x)) !== delId);
+      const next = String(getMapId(remaining?.[0]) || "");
+      await reloadMatchAndMaps(next || null);
+
       setMsg("Map deleted");
     } catch (e) {
+      // if optimistic update got out of sync, hard reload state for correctness
+      try {
+        await reloadMatchAndMaps();
+      } catch {}
       setMsg(String(e.message || e));
     }
   }
@@ -987,8 +1063,6 @@ function MatchDetailsModal({ matchId, onClose }) {
       const fd = new FormData();
       fd.append("match_id", String(matchId));
 
-      // если включено "create map if missing" — НЕ отправляем map_id вообще,
-      // чтобы бэкенд создал новую карту с next map_index
       if (!createMapIfMissing && mapId) {
         fd.append("map_id", String(mapId));
       }
@@ -1075,16 +1149,25 @@ function MatchDetailsModal({ matchId, onClose }) {
                     return (
                       <tr key={String(mpId)} className="border-t border-white/10">
                         <td className="py-4 pr-3 w-28">
-                          <StatNumber value={mp.map_index} onChange={(v) => patchMap(mp, { map_index: v === "" ? null : Number(v) })} />
+                          <StatNumber
+                            value={mp.map_index}
+                            onChange={(v) => patchMap(mp, { map_index: v === "" ? null : Number(v) })}
+                          />
                         </td>
                         <td className="py-4 pr-3">
                           <InlineText value={mp.map_name || ""} onChange={(v) => patchMap(mp, { map_name: v })} />
                         </td>
                         <td className="py-4 pr-3 w-32">
-                          <StatNumber value={mp.team1_score} onChange={(v) => patchMap(mp, { team1_score: v === "" ? null : Number(v) })} />
+                          <StatNumber
+                            value={mp.team1_score}
+                            onChange={(v) => patchMap(mp, { team1_score: v === "" ? null : Number(v) })}
+                          />
                         </td>
                         <td className="py-4 pr-3 w-32">
-                          <StatNumber value={mp.team2_score} onChange={(v) => patchMap(mp, { team2_score: v === "" ? null : Number(v) })} />
+                          <StatNumber
+                            value={mp.team2_score}
+                            onChange={(v) => patchMap(mp, { team2_score: v === "" ? null : Number(v) })}
+                          />
                         </td>
                         <td className="py-4 pr-3">{winnerLabel}</td>
                         <td className="py-4 pr-3">
@@ -1102,7 +1185,7 @@ function MatchDetailsModal({ matchId, onClose }) {
                   })}
                   {!maps?.length && (
                     <tr>
-                      <td className="py-5 text-zinc-400" colSpan={6}>
+                      <td className="py-5 text-zinc-400" colSpan={7}>
                         No maps yet.
                       </td>
                     </tr>
@@ -1114,7 +1197,12 @@ function MatchDetailsModal({ matchId, onClose }) {
             <div className="mt-6 grid md:grid-cols-3 gap-5 items-end">
               <label className="block space-y-2">
                 <div className="text-lg text-zinc-300">DEMO file (.dem)</div>
-                <input type="file" accept=".dem" onChange={(e) => setDemoFile(e.target.files?.[0] || null)} className="w-full text-lg" />
+                <input
+                  type="file"
+                  accept=".dem"
+                  onChange={(e) => setDemoFile(e.target.files?.[0] || null)}
+                  className="w-full text-lg"
+                />
               </label>
 
               <div className="flex gap-2 flex-wrap">
@@ -1138,7 +1226,9 @@ function MatchDetailsModal({ matchId, onClose }) {
                       .join(" • ")}
                   </div>
                   <div className="text-zinc-400 mt-2">Winner: {importResult.parsed.winner_team || "—"}</div>
-                  {!!importResult?.warnings?.length && <div className="text-yellow-300 mt-3">{importResult.warnings.join(" | ")}</div>}
+                  {!!importResult?.warnings?.length && (
+                    <div className="text-yellow-300 mt-3">{importResult.warnings.join(" | ")}</div>
+                  )}
                 </div>
               )}
             </div>
@@ -1265,9 +1355,23 @@ export default function AdminPage() {
   const [tab, setTab] = useState("market");
 
   const PAGE_SIZE = 10;
-  const ML_PAGE_SIZE = 10; // ✅ ДОБАВЛЕНО: пагинация матчей
+  const ML_PAGE_SIZE = 10;
 
   const [tournaments, setTournaments] = useState([]);
+
+  // ✅ toast state (used by matches delete + analytics errors)
+  const [toast, setToast] = useState(null);
+
+  // Tournament analytics (admin)
+  const [analyticsTournamentId, setAnalyticsTournamentId] = useState("");
+  const [topPlayers, setTopPlayers] = useState([]);
+  const [topRoles, setTopRoles] = useState([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  const [mapPointsMapId, setMapPointsMapId] = useState("");
+  const [mapPointsRows, setMapPointsRows] = useState([]);
+  const [mapPointsLoading, setMapPointsLoading] = useState(false);
+
   const [leagues, setLeagues] = useState([]);
   const [teams, setTeams] = useState([]);
   const [players, setPlayers] = useState([]);
@@ -1277,6 +1381,16 @@ export default function AdminPage() {
   const [budget, setBudget] = useState("1000000");
   const [slots, setSlots] = useState("5");
   const [marketMsg, setMarketMsg] = useState("");
+
+  // manual market price editor
+  const [marketTournamentId, setMarketTournamentId] = useState("");
+  const [marketRows, setMarketRows] = useState([]);
+  const [marketLoading, setMarketLoading] = useState(false);
+  const [marketError, setMarketError] = useState("");
+  const [marketEdits, setMarketEdits] = useState({});
+
+  const [marketQuery, setMarketQuery] = useState("");
+  const [marketTeamId, setMarketTeamId] = useState("");
 
   const [tName, setTName] = useState("");
   const [tStart, setTStart] = useState("");
@@ -1319,7 +1433,7 @@ export default function AdminPage() {
   const [mlErr, setMlErr] = useState("");
   const [openMatchId, setOpenMatchId] = useState(null);
 
-  const [mlPage, setMlPage] = useState(1); // ✅ ДОБАВЛЕНО: страница матчей
+  const [mlPage, setMlPage] = useState(1);
 
   const [showCreateMatch, setShowCreateMatch] = useState(false);
 
@@ -1390,11 +1504,64 @@ export default function AdminPage() {
     []
   );
 
-
   const playerOpts = useMemo(
     () => [{ value: "", label: "— choose player —" }, ...players.map((p) => ({ value: String(p.id), label: p.nickname }))],
     [players]
   );
+
+  const playersById = useMemo(() => {
+    const m = {};
+    for (const p of players) m[String(p.id)] = p;
+    return m;
+  }, [players]);
+
+  const teamsById = useMemo(() => {
+    const m = {};
+    for (const t of teams) m[String(t.id)] = t;
+    return m;
+  }, [teams]);
+
+  const marketTeamOpts = useMemo(() => {
+    if (!marketTournamentId) return teamOpts;
+
+    const ids = new Set(
+      (tournamentTeams || [])
+        .filter((tt) => String(tt.tournament ?? tt.tournament_id) === String(marketTournamentId))
+        .map((tt) => String(tt.team ?? tt.team_id))
+        .filter(Boolean)
+    );
+
+    const out = [{ value: "", label: "— all teams —" }];
+    for (const id of ids) {
+      const team = teamsById[id];
+      out.push({ value: id, label: team?.name || `Team ${id}` });
+    }
+    return out;
+  }, [marketTournamentId, tournamentTeams, teamOpts, teamsById]);
+
+  const filteredMarketRows = useMemo(() => {
+    const q = marketQuery.trim().toLowerCase();
+
+    return (marketRows || []).filter((row) => {
+      const pid = row.player_id ?? row.player ?? row.player?.id;
+      const player = pid != null ? playersById[String(pid)] : null;
+
+      const tid =
+        (player ? (player.team_id ?? player.team ?? player.team?.id) : null) ??
+        (row.team_id ?? row.team ?? row.team?.id);
+
+      if (marketTeamId && String(tid || "") !== String(marketTeamId)) return false;
+
+      if (!q) return true;
+
+      const pName = (row.player_nickname || row.nickname || row.player_name || player?.nickname || player?.name || player?.full_name || "")
+        .toLowerCase();
+
+      const tName = (row.team_name || (tid != null ? (teamsById[String(tid)]?.name || "") : "")).toLowerCase();
+
+      return pName.includes(q) || tName.includes(q);
+    });
+  }, [marketRows, marketQuery, marketTeamId, playersById, teamsById]);
 
   const leagueOpts = useMemo(
     () => [{ value: "", label: "— choose league —" }, ...leagues.map((l) => ({ value: String(l.id), label: l.name }))],
@@ -1493,6 +1660,56 @@ export default function AdminPage() {
     }
   }
 
+  async function loadMarketPrices(tournamentId) {
+    if (!tournamentId) {
+      setMarketRows([]);
+      setMarketEdits({});
+      return;
+    }
+    setMarketLoading(true);
+    setMarketError("");
+    try {
+      const rows = await apiGet(`/market/?tournament=${Number(tournamentId)}`);
+      setMarketRows(Array.isArray(rows) ? rows : []);
+
+      const nextEdits = {};
+      (Array.isArray(rows) ? rows : []).forEach((r) => {
+        const id = r?.id;
+        const v = r?.price ?? r?.value ?? r?.amount ?? r?.player_price;
+        if (id != null) nextEdits[id] = v != null ? String(v) : "";
+      });
+      setMarketEdits(nextEdits);
+    } catch (e) {
+      setMarketError(String(e.message || e));
+      setMarketRows([]);
+      setMarketEdits({});
+    } finally {
+      setMarketLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadMarketPrices(marketTournamentId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [marketTournamentId]);
+
+  async function saveMarketPrice(priceId) {
+    setMarketMsg("");
+    const raw = marketEdits[priceId];
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num < 0) {
+      setMarketMsg("Invalid price");
+      return;
+    }
+    try {
+      const updated = await apiPatch(`/market/${priceId}/`, { price: num });
+      setMarketRows((prev) => prev.map((r) => (r.id === priceId ? { ...r, ...updated } : r)));
+      setMarketMsg("Saved");
+    } catch (e) {
+      setMarketMsg(String(e.message || e));
+    }
+  }
+
   const [msg, setMsg] = useState("");
 
   async function createTournament() {
@@ -1517,6 +1734,7 @@ export default function AdminPage() {
       setMsg("Team linked to tournament");
       setTtTeam("");
       setTtTournament("");
+      await refreshAll(); // ✅ keep UI in sync
     } catch (e) {
       setMsg(String(e.message || e));
     }
@@ -1539,11 +1757,57 @@ export default function AdminPage() {
     setMBo("3");
     return res;
   }
+
+  async function loadTournamentAnalytics() {
+    const tid = String(analyticsTournamentId || "").trim();
+    if (!tid) return;
+
+    setAnalyticsLoading(true);
+    try {
+      const [playersRes, rolesRes] = await Promise.all([
+        apiGet(`/tournaments/${tid}/top-players/`),
+        apiGet(`/tournaments/${tid}/top-roles/`),
+      ]);
+
+      setTopPlayers(playersRes?.top_players || []);
+      setTopRoles(rolesRes?.top_roles || []);
+    } catch (e) {
+      console.error(e);
+      setTopPlayers([]);
+      setTopRoles([]);
+      setToast({ type: "error", message: "Failed to load tournament analytics" });
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
+  async function loadFantasyPointsByMap() {
+    const mid = String(mapPointsMapId || "").trim();
+    if (!mid) return;
+
+    setMapPointsLoading(true);
+    try {
+      const rows = await apiGet(`/fantasy-points-by-map/?map=${encodeURIComponent(mid)}`);
+      setMapPointsRows(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      console.error(e);
+      setMapPointsRows([]);
+      setToast({ type: "error", message: "Failed to load fantasy points by map" });
+    } finally {
+      setMapPointsLoading(false);
+    }
+  }
+
   async function createTeam() {
     setMsg("");
     if (!teamName) return setMsg("Team: name required");
     try {
-      await apiPost("/teams/", { name: teamName, world_rank: teamRank ? Number(teamRank) : null, region_code: teamRegionCode || null, region_name: teamRegionName || null });
+      await apiPost("/teams/", {
+        name: teamName,
+        world_rank: teamRank ? Number(teamRank) : null,
+        region_code: teamRegionCode || null,
+        region_name: teamRegionName || null,
+      });
       setMsg("Team created");
       setTeamName("");
       setTeamRank("");
@@ -1562,6 +1826,7 @@ export default function AdminPage() {
       setMsg("Team linked to tournament");
       setLtTeam("");
       setLtTournament("");
+      await refreshAll(); // ✅ keep UI in sync
     } catch (e) {
       setMsg(String(e.message || e));
     }
@@ -1570,14 +1835,14 @@ export default function AdminPage() {
     setMsg("");
     if (!playerNickname || !playerTeam) return setMsg("Player: nickname & team required");
     try {
-await apiPost("/players/", {
-  nickname: playerNickname,
-  team: Number(playerTeam),
-  country_code: playerCountryCode || null,
-  country_name: playerCountryName || null,
-  nationality_code: playerCountryCode || null,
-  nationality_name: playerCountryName || null,
-});
+      await apiPost("/players/", {
+        nickname: playerNickname,
+        team: Number(playerTeam),
+        country_code: playerCountryCode || null,
+        country_name: playerCountryName || null,
+        nationality_code: playerCountryCode || null,
+        nationality_name: playerCountryName || null,
+      });
       setMsg("Player created");
       setPlayerNickname("");
       setPlayerTeam("");
@@ -1671,10 +1936,25 @@ await apiPost("/players/", {
     await apiPatch(`/${type}/${id}/`, body);
     await refreshAll();
   }
+
+  // ✅ immediate local removal (fixes "needs refresh") + then refreshAll for truth
   async function removeRow(type, id, text) {
     if (!window.confirm(text || "Delete?")) return;
-    await apiDelete(`/${type}/${id}/`);
-    await refreshAll();
+
+    // optimistic UI remove
+    if (type === "tournaments") setTournaments((prev) => (prev || []).filter((x) => String(x.id) !== String(id)));
+    if (type === "teams") setTeams((prev) => (prev || []).filter((x) => String(x.id) !== String(id)));
+    if (type === "players") setPlayers((prev) => (prev || []).filter((x) => String(x.id) !== String(id)));
+    if (type === "leagues") setLeagues((prev) => (prev || []).filter((x) => String(x.id) !== String(id)));
+
+    try {
+      await apiDelete(`/${type}/${id}/`);
+      await refreshAll();
+    } catch (e) {
+      // if something failed, reload everything back
+      await refreshAll().catch(() => {});
+      throw e;
+    }
   }
 
   function extractTournamentId(m) {
@@ -1703,6 +1983,25 @@ await apiPost("/players/", {
     }
   }
 
+  async function deleteMatch(matchId) {
+    if (!matchId) return;
+    const ok = window.confirm("Delete match? This will also remove its maps/stats if they are linked.");
+    if (!ok) return;
+
+    // optimistic UI remove
+    setMlMatches((prev) => (prev || []).filter((m) => String(m.id) !== String(matchId)));
+
+    try {
+      await apiDelete(`/matches/${matchId}/`);
+      await loadMatchesForTournament();
+      if (String(openMatchId) === String(matchId)) setOpenMatchId(null);
+      setToast({ type: "success", message: "Match deleted" });
+    } catch (e) {
+      await loadMatchesForTournament().catch(() => {});
+      setToast({ type: "error", message: e?.message || "Delete failed" });
+    }
+  }
+
   useEffect(() => {
     if (!mlTournament) {
       setMlMatches([]);
@@ -1723,12 +2022,10 @@ await apiPost("/players/", {
     );
   }, [mlMatches, mlQuery]);
 
-  // ✅ ДОБАВЛЕНО: сброс страницы матчей при смене фильтров
   useEffect(() => {
     setMlPage(1);
   }, [mlTournament, mlQuery]);
 
-  // ✅ ДОБАВЛЕНО: пагинация матчей
   const mlTotalPages = Math.max(1, Math.ceil(mlFiltered.length / ML_PAGE_SIZE));
   const mlPaginated = useMemo(() => {
     const start = (mlPage - 1) * ML_PAGE_SIZE;
@@ -1777,7 +2074,14 @@ await apiPost("/players/", {
           <div className="mt-10 grid md:grid-cols-2 gap-7">
             <Card title="Generate Market">
               <div className="grid gap-5">
-                <ComboSelect label="Tournament" value={tid} onChange={setTid} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
+                <ComboSelect
+                  label="Tournament"
+                  value={tid}
+                  onChange={setTid}
+                  options={tOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search tournament..."
+                />
                 <div className="grid grid-cols-2 gap-5">
                   <Input label="Budget" value={budget} onChange={setBudget} />
                   <Input label="Slots" value={slots} onChange={setSlots} />
@@ -1790,7 +2094,10 @@ await apiPost("/players/", {
               {tid ? (
                 <div className="space-y-3">
                   {(leaguesByT[String(tid)] || []).map((l) => (
-                    <div key={l.id} className="flex items-center justify-between rounded-2xl bg-white/5 px-5 py-4 border border-white/10">
+                    <div
+                      key={l.id}
+                      className="flex items-center justify-between rounded-2xl bg-white/5 px-5 py-4 border border-white/10"
+                    >
                       <span className="text-lg">{l.name}</span>
                       <span className="text-lg text-zinc-300">budget: {l.budget}</span>
                     </div>
@@ -1801,6 +2108,118 @@ await apiPost("/players/", {
                 <p className="text-zinc-300 text-lg">Choose tournament.</p>
               )}
             </Card>
+
+            {/* manual price editor */}
+            <div className="md:col-span-2">
+              <Card title="Edit player prices">
+                <div className="grid gap-5">
+                  <ComboSelect
+                    label="Tournament"
+                    value={marketTournamentId}
+                    onChange={setMarketTournamentId}
+                    options={tOpts}
+                    pageSize={12}
+                    searchPlaceholder="Search tournament..."
+                  />
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs text-slate-400">Search</label>
+                    <input
+                      value={marketQuery}
+                      onChange={(e) => setMarketQuery(e.target.value)}
+                      placeholder="player or team..."
+                      className="px-3 py-2 rounded-xl bg-slate-900/50 border border-slate-700 text-slate-100 outline-none"
+                    />
+                  </div>
+
+                  <ComboSelect
+                    label="Team"
+                    value={marketTeamId}
+                    onChange={setMarketTeamId}
+                    options={marketTeamOpts}
+                    searchPlaceholder="Search team..."
+                  />
+
+                  {marketError && <Note>{marketError}</Note>}
+
+                  {!marketTournamentId ? (
+                    <p className="text-zinc-300 text-lg">Choose tournament.</p>
+                  ) : marketLoading ? (
+                    <p className="text-zinc-300 text-lg">Loading...</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="text-white/60">
+                          <tr>
+                            <th className="py-2 pr-3">Player</th>
+                            <th className="py-2 pr-3">Team</th>
+                            <th className="py-2 pr-3">Current price</th>
+                            <th className="py-2 pr-3">New price</th>
+                            <th className="py-2 pr-3"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredMarketRows.map((row) => {
+                            const pid = row.player_id ?? row.player ?? row.player?.id;
+                            const player = pid != null ? playersById[String(pid)] : null;
+
+                            const teamId =
+                              (player ? (player.team_id ?? player.team ?? player.team?.id) : null) ??
+                              (row.team_id ?? row.team ?? row.team?.id);
+
+                            const team = teamId != null ? teamsById[String(teamId)] : null;
+
+                            const name =
+                              row.player_nickname ||
+                              row.nickname ||
+                              row.player_name ||
+                              player?.nickname ||
+                              player?.name ||
+                              player?.full_name ||
+                              (pid != null ? `Player ${pid}` : "#");
+
+                            const teamName = row.team_name || team?.name || (teamId != null ? `Team ${teamId}` : "");
+                            const current = row.price ?? row.value ?? row.amount ?? "";
+                            const editVal = marketEdits[row.id] ?? String(current ?? "");
+
+                            return (
+                              <tr key={row.id} className="border-t border-white/10">
+                                <td className="py-3 pr-3">{name}</td>
+                                <td className="py-3 pr-3 text-white/70">{teamName}</td>
+                                <td className="py-3 pr-3">{String(current)}</td>
+                                <td className="py-3 pr-3">
+                                  <input
+                                    className="w-36 rounded-xl bg-white/5 border border-white/10 px-3 py-2"
+                                    value={editVal}
+                                    onChange={(e) => setMarketEdits((p) => ({ ...p, [row.id]: e.target.value }))}
+                                  />
+                                </td>
+                                <td className="py-3 pr-3">
+                                  <Button
+                                    onClick={() => saveMarketPrice(row.id)}
+                                    disabled={!String(editVal).trim() || Number.isNaN(Number(editVal))}
+                                  >
+                                    Save
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+
+                          {marketRows.length === 0 && (
+                            <tr>
+                              <td className="py-4 text-zinc-300" colSpan={5}>
+                                No market rows for this tournament.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
           </div>
         )}
 
@@ -1817,8 +2236,22 @@ await apiPost("/players/", {
             </Card>
             <Card title="Link Team → Tournament">
               <div className="grid gap-5">
-                <ComboSelect label="Team" value={ttTeam} onChange={setTtTeam} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
-                <ComboSelect label="Tournament" value={ttTournament} onChange={setTtTournament} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
+                <ComboSelect
+                  label="Team"
+                  value={ttTeam}
+                  onChange={setTtTeam}
+                  options={teamOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search team..."
+                />
+                <ComboSelect
+                  label="Tournament"
+                  value={ttTournament}
+                  onChange={setTtTournament}
+                  options={tOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search tournament..."
+                />
                 <Button onClick={linkTeamToTournament_tt}>Link</Button>
               </div>
             </Card>
@@ -1849,8 +2282,22 @@ await apiPost("/players/", {
             </Card>
             <Card title="Link Team → Tournament">
               <div className="grid gap-5">
-                <ComboSelect label="Team" value={ltTeam} onChange={setLtTeam} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
-                <ComboSelect label="Tournament" value={ltTournament} onChange={setLtTournament} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
+                <ComboSelect
+                  label="Team"
+                  value={ltTeam}
+                  onChange={setLtTeam}
+                  options={teamOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search team..."
+                />
+                <ComboSelect
+                  label="Tournament"
+                  value={ltTournament}
+                  onChange={setLtTournament}
+                  options={tOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search tournament..."
+                />
                 <Button onClick={linkTeamToTournament}>Link</Button>
               </div>
             </Card>
@@ -1863,7 +2310,14 @@ await apiPost("/players/", {
             <Card title="Create Player">
               <div className="grid gap-5">
                 <Input label="Nickname" value={playerNickname} onChange={setPlayerNickname} />
-                <ComboSelect label="Team" value={playerTeam} onChange={setPlayerTeam} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
+                <ComboSelect
+                  label="Team"
+                  value={playerTeam}
+                  onChange={setPlayerTeam}
+                  options={teamOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search team..."
+                />
                 <ComboSelect
                   label="Country (optional)"
                   value={playerCountryCode}
@@ -1881,13 +2335,28 @@ await apiPost("/players/", {
             </Card>
             <Card title="Link Player → Team (no jump)">
               <div className="grid gap-5">
-                <ComboSelect label="Player" value={lpPlayer} onChange={setLpPlayerNoJump} options={playerOpts} pageSize={12} searchPlaceholder="Search player..." />
-                <ComboSelect label="Team" value={lpTeam} onChange={setLpTeamNoJump} options={teamOpts} pageSize={12} searchPlaceholder="Search team..." />
+                <ComboSelect
+                  label="Player"
+                  value={lpPlayer}
+                  onChange={setLpPlayerNoJump}
+                  options={playerOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search player..."
+                />
+                <ComboSelect
+                  label="Team"
+                  value={lpTeam}
+                  onChange={setLpTeamNoJump}
+                  options={teamOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search team..."
+                />
                 <Button onClick={linkPlayerToTeam}>Link</Button>
               </div>
             </Card>
           </div>
         )}
+
         {/* MATCHES */}
         {tab === "matches" && (
           <div className="mt-10 grid gap-7">
@@ -1903,7 +2372,14 @@ await apiPost("/players/", {
               }
             >
               <div className="grid md:grid-cols-2 gap-5">
-                <ComboSelect label="Tournament" value={mlTournament} onChange={setMlTournament} options={tOpts} pageSize={12} searchPlaceholder="Search tournament..." />
+                <ComboSelect
+                  label="Tournament"
+                  value={mlTournament}
+                  onChange={setMlTournament}
+                  options={tOpts}
+                  pageSize={12}
+                  searchPlaceholder="Search tournament..."
+                />
                 <Input label="Search (team names)" value={mlQuery} onChange={setMlQuery} placeholder="NaVi, Vitality, etc." />
               </div>
 
@@ -1921,6 +2397,7 @@ await apiPost("/players/", {
                           <th className="py-4 pr-3">Start</th>
                           <th className="py-4 pr-3">BO</th>
                           <th className="py-4 pr-3">Open</th>
+                          <th className="py-4 pr-3">Delete</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1934,11 +2411,14 @@ await apiPost("/players/", {
                             <td className="py-4 pr-3">
                               <Button onClick={() => setOpenMatchId(m.id)}>Open</Button>
                             </td>
+                            <td className="py-4 pr-3">
+                              <Button onClick={() => deleteMatch(m.id)}>Delete</Button>
+                            </td>
                           </tr>
                         ))}
                         {!mlPaginated.length && (
                           <tr>
-                            <td className="py-5 text-zinc-400" colSpan={6}>
+                            <td className="py-5 text-zinc-400" colSpan={7}>
                               No matches found.
                             </td>
                           </tr>
@@ -1946,7 +2426,6 @@ await apiPost("/players/", {
                       </tbody>
                     </table>
 
-                    {/* ✅ ДОБАВЛЕНО: пагинация матчей */}
                     {mlTotalPages > 1 && (
                       <div className="mt-4 flex items-center justify-between text-lg text-zinc-300">
                         <span>
@@ -2020,7 +2499,11 @@ await apiPost("/players/", {
                     <Button variant="ghost" disabled={pageT === 1} onClick={() => setPageT((p) => Math.max(1, p - 1))}>
                       Prev
                     </Button>
-                    <Button variant="ghost" disabled={pageT === totalTPages} onClick={() => setPageT((p) => Math.min(totalTPages, p + 1))}>
+                    <Button
+                      variant="ghost"
+                      disabled={pageT === totalTPages}
+                      onClick={() => setPageT((p) => Math.min(totalTPages, p + 1))}
+                    >
                       Next
                     </Button>
                   </div>
@@ -2045,7 +2528,12 @@ await apiPost("/players/", {
                   </thead>
                   <tbody>
                     {paginatedTeams.map((t) => (
-                      <TeamRow key={t.id} t={t} onSave={(id, body) => saveRow("teams", id, body)} onDelete={(id, text) => removeRow("teams", id, text)} />
+                      <TeamRow
+                        key={t.id}
+                        t={t}
+                        onSave={(id, body) => saveRow("teams", id, body)}
+                        onDelete={(id, text) => removeRow("teams", id, text)}
+                      />
                     ))}
                     {filteredTeams.length === 0 && (
                       <tr>
@@ -2066,7 +2554,11 @@ await apiPost("/players/", {
                     <Button variant="ghost" disabled={pageTm === 1} onClick={() => setPageTm((p) => Math.max(1, p - 1))}>
                       Prev
                     </Button>
-                    <Button variant="ghost" disabled={pageTm === totalTeamPages} onClick={() => setPageTm((p) => Math.min(totalTeamPages, p + 1))}>
+                    <Button
+                      variant="ghost"
+                      disabled={pageTm === totalTeamPages}
+                      onClick={() => setPageTm((p) => Math.min(totalTeamPages, p + 1))}
+                    >
                       Next
                     </Button>
                   </div>
@@ -2091,7 +2583,13 @@ await apiPost("/players/", {
                   </thead>
                   <tbody>
                     {paginatedPlayers.map((p) => (
-                      <PlayerRow key={p.id} p={p} teams={teams} onSave={(id, body) => saveRow("players", id, body)} onDelete={(id, text) => removeRow("players", id, text)} />
+                      <PlayerRow
+                        key={p.id}
+                        p={p}
+                        teams={teams}
+                        onSave={(id, body) => saveRow("players", id, body)}
+                        onDelete={(id, text) => removeRow("players", id, text)}
+                      />
                     ))}
                     {filteredPlayers.length === 0 && (
                       <tr>
@@ -2112,7 +2610,11 @@ await apiPost("/players/", {
                     <Button variant="ghost" disabled={pageP === 1} onClick={() => setPageP((p) => Math.max(1, p - 1))}>
                       Prev
                     </Button>
-                    <Button variant="ghost" disabled={pageP === totalPlayerPages} onClick={() => setPageP((p) => Math.min(totalPlayerPages, p + 1))}>
+                    <Button
+                      variant="ghost"
+                      disabled={pageP === totalPlayerPages}
+                      onClick={() => setPageP((p) => Math.min(totalPlayerPages, p + 1))}
+                    >
                       Next
                     </Button>
                   </div>
@@ -2138,11 +2640,17 @@ await apiPost("/players/", {
                   </thead>
                   <tbody>
                     {paginatedLeagues.map((l) => (
-                      <LeagueRow key={l.id} l={l} tournaments={tournaments} onSave={(id, body) => saveRow("leagues", id, body)} onDelete={(id, text) => removeRow("leagues", id, text)} />
+                      <LeagueRow
+                        key={l.id}
+                        l={l}
+                        tournaments={tournaments}
+                        onSave={(id, body) => saveRow("leagues", id, body)}
+                        onDelete={(id, text) => removeRow("leagues", id, text)}
+                      />
                     ))}
                     {filteredLeagues.length === 0 && (
                       <tr>
-                        <td className="py-6 text-zinc-400" colSpan={6}>
+                        <td className="py-6 text-zinc-400" colSpan={7}>
                           No leagues
                         </td>
                       </tr>
@@ -2159,7 +2667,11 @@ await apiPost("/players/", {
                     <Button variant="ghost" disabled={pageL === 1} onClick={() => setPageL((p) => Math.max(1, p - 1))}>
                       Prev
                     </Button>
-                    <Button variant="ghost" disabled={pageL === totalLeaguePages} onClick={() => setPageL((p) => Math.min(totalLeaguePages, p + 1))}>
+                    <Button
+                      variant="ghost"
+                      disabled={pageL === totalLeaguePages}
+                      onClick={() => setPageL((p) => Math.min(totalLeaguePages, p + 1))}
+                    >
                       Next
                     </Button>
                   </div>
@@ -2195,6 +2707,8 @@ await apiPost("/players/", {
 
         {msg && tab !== "hltv" && <Note>{msg}</Note>}
       </main>
+
+      <Toast toast={toast} onClose={() => setToast(null)} />
 
       {openMatchId != null && <MatchDetailsModal matchId={openMatchId} onClose={() => setOpenMatchId(null)} />}
 
