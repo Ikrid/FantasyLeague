@@ -177,39 +177,41 @@ function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white p-12 text-[18px]">
-      <header className="sticky top-0 z-40 bg-black/70 backdrop-blur border-b border-white/10 -m-12 mb-12">
-        <div className="p-12 flex items-center justify-between">
-          <Link to="/" className="text-2xl font-semibold">
-            Fantasy CS2
-          </Link>
-          <Link to="/" className="text-[17px] text-zinc-300 hover:text-white">
-            Back
-          </Link>
-        </div>
-      </header>
-
-      <main className="max-w-xl">
-        <h1 className="text-5xl font-bold mb-7">Create your account</h1>
-        <form onSubmit={submit} className="space-y-5">
-          <Input label="Username" value={form.username} onChange={(v) => setField("username", v)} />
-          <Input label="Email" value={form.email} onChange={(v) => setField("email", v)} type="email" />
-          <div className="grid grid-cols-2 gap-5">
-            <Input label="First name" value={form.first_name} onChange={(v) => setField("first_name", v)} />
-            <Input label="Last name" value={form.last_name} onChange={(v) => setField("last_name", v)} />
-          </div>
-          <Input label="Password" type="password" value={form.password} onChange={(v) => setField("password", v)} />
-          {err && <p className="text-[17px] text-red-400">{err}</p>}
-          {ok && <p className="text-[17px] text-green-400">Registration successful</p>}
-          <div className="flex items-center justify-end gap-3">
-            <Link to="/" className="text-[17px] text-zinc-300 hover:text-white">
-              Cancel
-            </Link>
-            <Button type="submit">{loading ? "Creating…" : "Create account"}</Button>
-          </div>
-        </form>
-      </main>
+  <div className="min-h-screen bg-black text-white p-12 text-[18px] flex flex-col">
+  <header className="sticky top-0 z-40 bg-black/70 backdrop-blur border-b border-white/10 -m-12 mb-12 shrink-0">
+    <div className="p-12 flex items-center justify-between">
+      <Link to="/" className="text-2xl font-semibold">
+        Fantasy CS2
+      </Link>
+      <Link to="/" className="text-[17px] text-zinc-300 hover:text-white">
+        Back
+      </Link>
     </div>
+  </header>
+
+  <main className="flex-1 flex justify-center py-8 md:py-12">
+    <div className="w-full max-w-xl">
+      <h1 className="text-5xl font-bold mb-7">Create your account</h1>
+      <form onSubmit={submit} className="space-y-5">
+        <Input label="Username" value={form.username} onChange={(v) => setField("username", v)} />
+        <Input label="Email" value={form.email} onChange={(v) => setField("email", v)} type="email" />
+        <div className="grid grid-cols-2 gap-5">
+          <Input label="First name" value={form.first_name} onChange={(v) => setField("first_name", v)} />
+          <Input label="Last name" value={form.last_name} onChange={(v) => setField("last_name", v)} />
+        </div>
+        <Input label="Password" type="password" value={form.password} onChange={(v) => setField("password", v)} />
+        {err && <p className="text-[17px] text-red-400">{err}</p>}
+        {ok && <p className="text-[17px] text-green-400">Registration successful</p>}
+        <div className="flex items-center justify-end gap-3">
+          <Link to="/" className="text-[17px] text-zinc-300 hover:text-white">
+            Cancel
+          </Link>
+          <Button type="submit">{loading ? "Creating…" : "Create account"}</Button>
+        </div>
+      </form>
+    </div>
+  </main>
+</div>
   );
 }
 
