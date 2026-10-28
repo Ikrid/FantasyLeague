@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 const BASE_URL = "http://localhost:8000/api";
 
-/* ================== API ================== */
+
 const getToken = () => localStorage.getItem("access");
 const authHeader = () => ({
   Authorization: `Bearer ${getToken()}`,
@@ -31,7 +31,7 @@ async function apiPost(path, body) {
   return d;
 }
 
-/* ================== UI ================== */
+
 function Button({
   children,
   onClick,
@@ -97,7 +97,7 @@ function InfoTile({ label, value, sub }) {
   );
 }
 
-/* ================== ROLES ================== */
+
 const ROLE_OPTIONS = [
   { code: "", label: "No role" },
   { code: "STAR_PLAYER", label: "Star Player" },
@@ -187,7 +187,7 @@ function roleLabel(code) {
   return found ? found.label : String(code || "");
 }
 
-/* ================== ROLE PICKER MODAL ================== */
+
 function RoleTile({ roleCode, active, disabled, taken, onClick }) {
   const info = ROLE_DETAILS[roleCode] || { title: roleCode, desc: "", how: [] };
 
@@ -240,7 +240,7 @@ function RolesModal({
   disabled,
   playerName,
   teamName,
-  usedRolesSet, // NEW: Set of roles already used by other roster players
+  usedRolesSet,
 }) {
   const [selectedRole, setSelectedRole] = useState(currentRole || "");
 
@@ -255,7 +255,7 @@ function RolesModal({
   const canApply =
     !disabled && !(selectedRole && usedRolesSet?.has(selectedRole));
 
-  const gridRoles = ROLE_OPTIONS.filter((r) => r.code !== ""); // 8 roles
+  const gridRoles = ROLE_OPTIONS.filter((r) => r.code !== "");
   const noRole = ROLE_OPTIONS.find((r) => r.code === "");
 
   return (
@@ -284,7 +284,7 @@ function RolesModal({
         same; roles affect only the role-bonus system.
       </div>
 
-      {/* No role (separate, full width) */}
+      {                                    }
       {noRole && (
         <RoleTile
           roleCode=""
@@ -295,7 +295,7 @@ function RolesModal({
         />
       )}
 
-      {/* 2 rows x 4 (grid) */}
+      {                       }
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {gridRoles.map((opt) => (
           <RoleTile
@@ -312,7 +312,7 @@ function RolesModal({
   );
 }
 
-/* ================== DRAFT PAGE ================== */
+
 export default function DraftPage() {
   const { leagueId } = useParams();
   const navigate = useNavigate();
@@ -327,7 +327,7 @@ export default function DraftPage() {
   const [statErr, setStatErr] = useState("");
   const [stat, setStat] = useState(null);
 
-  // Role modal state
+
   const [roleModalOpen, setRoleModalOpen] = useState(false);
   const [roleTarget, setRoleTarget] = useState(null);
 
@@ -352,7 +352,7 @@ export default function DraftPage() {
     load();
   }, [leagueId]);
 
-  /* ===== CONDITIONS ===== */
+
   const started = state?.started === true;
   const finished = state?.locked === true;
 
@@ -377,7 +377,7 @@ export default function DraftPage() {
     0
   );
 
-  /* ===== used roles (unique constraint) ===== */
+
   const usedRolesSetForModal = useMemo(() => {
     const s = new Set();
     for (const r of roster) {
@@ -393,7 +393,7 @@ export default function DraftPage() {
     return s;
   }, [roster, roleTarget]);
 
-  /* ===== LOAD MATCHES IF ACTIVE ===== */
+
   useEffect(() => {
     async function loadMatches() {
       if (!tournamentId || finished) return;
@@ -438,7 +438,7 @@ export default function DraftPage() {
     return groups;
   }, [market]);
 
-  /* ===== BUY LOGIC ===== */
+
   function canBuy(p) {
     if (started || finished) return false;
     if (!canBuyMore) return false;
@@ -497,7 +497,7 @@ export default function DraftPage() {
   async function applyRoleFromModal(roleCode) {
     if (!roleTarget) return;
 
-    // Unique enforcement: block if role already taken (except empty)
+
     if (roleCode && usedRolesSetForModal.has(roleCode)) {
       alert("This role is already used by another player.");
       return;
@@ -508,7 +508,7 @@ export default function DraftPage() {
     setRoleTarget(null);
   }
 
-  /* ===== LOCK/UNLOCK ROSTER ===== */
+
   async function doLockRoster() {
     if (!canLockRoster) return;
     const ok = window.confirm(
@@ -548,7 +548,7 @@ export default function DraftPage() {
   const actionLabel = rosterLocked ? "Unlock" : "Lock";
   const actionOnClick = rosterLocked ? doUnlockRoster : doLockRoster;
 
-  /* ===== MODAL STATS ===== */
+
   async function openPlayerModal(p) {
     if (finished) return;
     setSelected(p);
@@ -965,7 +965,7 @@ export default function DraftPage() {
         </Modal>
       )}
 
-      {/* === ROLES PICKER MODAL === */}
+      {                                }
       <RolesModal
         open={roleModalOpen}
         onClose={() => {

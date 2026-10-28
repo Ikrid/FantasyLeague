@@ -6,7 +6,7 @@ import AdminPage from "./pages/AdminPage";
 
 const BASE_URL = "http://localhost:8000/api";
 
-// === utils ===
+
 async function apiPost(path, body) {
   const res = await fetch(`${BASE_URL}${path}`, {
     method: "POST",
@@ -29,7 +29,7 @@ function saveToken(token) { localStorage.setItem("access", token); }
 function getToken() { return localStorage.getItem("access"); }
 function clearToken() { localStorage.removeItem("access"); }
 
-// === ui primitives ===
+
 function Button({ children, onClick, type = "button", variant = "primary", className = "" }) {
   const styles =
     variant === "primary"
@@ -81,7 +81,7 @@ function Modal({ open, onClose, title, children, footer }) {
   );
 }
 
-// === auth modal ===
+
 function LoginModal({ open, onClose, onLoggedIn }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -135,7 +135,7 @@ function LoginModal({ open, onClose, onLoggedIn }) {
   );
 }
 
-// === registration ===
+
 function RegisterPage() {
   const nav = useNavigate();
   const [form, setForm] = useState({
@@ -195,7 +195,7 @@ function RegisterPage() {
   );
 }
 
-// === tournaments ===
+
 function fmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -236,7 +236,7 @@ function TournamentsSection() {
 
   const statusOrder = { Finished: 0, Open: 1, Upcoming: 2 };
 
-  // === KEY PART: SORTING FIX ===
+
   const visible = [...tournaments].sort((a, b) => {
     const sa = statusOf(a.start_date, a.end_date);
     const sb = statusOf(b.start_date, b.end_date);
@@ -247,11 +247,11 @@ function TournamentsSection() {
     const db = new Date(b.start_date || b.end_date || 0);
 
     if (sa === "Finished") {
-      // Finished → from OLDEST to newest
+
       return da - db;
     }
 
-    // Open / Upcoming → new first
+
     return db - da;
   });
 
@@ -274,7 +274,7 @@ function TournamentsSection() {
             const isFinished = st === "Finished";
             const isUpcoming = st === "Upcoming";
 
-            // compute badge text
+
             let badgeText = st;
 
             if (!isFinished) {
@@ -306,7 +306,7 @@ function TournamentsSection() {
               <div
                 key={t.id}
                 className={rowClass}
-                onClick={() => openTournament(t)} // Finished now clickable
+                onClick={() => openTournament(t)}
               >
                 <div className="flex flex-col gap-0.5">
                   {dateLabel && <span className={dateClass}>{dateLabel}</span>}
@@ -325,7 +325,7 @@ function TournamentsSection() {
   );
 }
 
-// === FAQ ===
+
 function FAQSection() {
   return (
     <section id="faq" className="border-t border-white/10 bg-black">
@@ -415,7 +415,7 @@ function Landing() {
   );
 }
 
-// === routes ===
+
 export default function App() {
   return (
     <BrowserRouter>

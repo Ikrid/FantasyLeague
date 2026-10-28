@@ -13,14 +13,14 @@ from .models import (
     Match, Map, PlayerMapStats, FantasyPoints, PlayerPrice, TournamentTeam
 )
 
-# =================== helpers ===================
+
 
 def _team_ids_for_tournament(tournament_id: int) -> set[int]:
-    """
-    Возвращает множество id команд, связанных с турниром.
-    1) Сначала явные связи из TournamentTeam.
-    2) Если связей нет — фолбэк по матчам.
-    """
+
+
+
+
+
     tts = list(
         TournamentTeam.objects.filter(tournament_id=tournament_id)
         .values_list("team_id", flat=True)
@@ -40,7 +40,7 @@ def _team_ids_for_tournament(tournament_id: int) -> set[int]:
 
 
 def _team_factor(rank: Optional[int], max_rank: int = 50) -> float:
-    """Фактор силы команды (1.0 — топ, 0.0 — слабая)."""
+
     if rank is None or rank <= 0:
         return 0.5
     r = min(rank, max_rank)
@@ -55,35 +55,35 @@ def _model_has_field(model_cls, field_name: str) -> bool:
 
 
 def _tournament_started(league: League) -> bool:
-    """
-    Универсальная проверка "турнир начался":
-    1) Если у Tournament есть start_date / start_time / starts_at / start_at — используем.
-    2) Иначе, если у Match есть start_time — проверяем наличие матчей <= now.
-    """
+
+
+
+
+
     t = getattr(league, "tournament", None)
     if not t:
         return False
 
     now = timezone.now()
 
-    # Пытаемся взять дату/время старта турнира, если поле существует
+
     for fld in ("start_time", "starts_at", "start_at", "start_date", "starts_on", "start"):
         if _model_has_field(Tournament, fld):
             start_val = getattr(t, fld, None)
             if start_val:
-                # start_val может быть date или datetime
+
                 try:
                     return start_val <= now
                 except TypeError:
                     return start_val <= now.date()
 
-    # Фолбэк по матчам (если есть start_time)
+
     if _model_has_field(Match, "start_time"):
         return Match.objects.filter(tournament=t, start_time__lte=now).exists()
 
     return False
 
-# =================== advanced market generation ===================
+
 
 def generate_market_prices_for_tournament(
     tournament_id: int,
@@ -92,9 +92,9 @@ def generate_market_prices_for_tournament(
     slots: int = 5,
     use_days_window: int = 90,
     weight_rating: float = 0.5,
-    weight_kdr: float = 0.2,  # kills_per_round
+    weight_kdr: float = 0.2,
     weight_adr: float = 0.3,
-    weight_fpm: float = 0.17,  # clutch_points_per_round (impact)
+    weight_fpm: float = 0.17,
     weight_team: float = 0.15,
     max_rank: int = 50,
     avg_price_mult: float = 1.0,
@@ -102,36 +102,36 @@ def generate_market_prices_for_tournament(
     flank_max_mult: float = 1.25,
     source_label: str = "AUTO",
 ) -> int:
-    """
-    Генерация цен игроков турнира.
 
-    НОВАЯ ЛОГИКА:
-    - опираемся на рейтинг команды (Team.world_rank)
-      и агрегированные HLTV-метрики из PlayerHLTVStats;
-    - если по игроку НЕТ PlayerHLTVStats, ему ставится дефолтная цена
-      (по умолчанию это средняя цена, при стандартных параметрах
-       budget=1_000_000 и slots=5 это будет 200_000);
-    - сырые PlayerMapStats и FantasyPoints для цены больше не используются.
 
-    Параметры weight_*:
-    - rating  — основной фактор;
-    - kdr     — kills_per_round;
-    - adr     — damage per round, второй по важности после rating;
-    - fpm     — clutch_points_per_round, вспомогательный импакт;
-    - team    — сила команды по мировому рейтингу.
 
-    ДОПОЛНИТЕЛЬНО:
-    - поверх базовой модели вводится турнирный множитель по силе команды:
-      внутри КОНКРЕТНОГО турнира лучшие команды слегка удорожают игроков,
-      а команды-аутсайдеры заметно удешевляют.
-    - финальная цена округляется до 1000.
-    """
-    # --- участники турнира
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     team_ids = list(_team_ids_for_tournament(tournament_id))
     if not team_ids:
         return 0
 
-    # Подтягиваем команды и HLTV-статы одним запросом
+
     players = (
         Player.objects
         .filter(team_id__in=team_ids)
@@ -141,15 +141,15 @@ def generate_market_prices_for_tournament(
     if not players:
         return 0
 
-    # >>> NEW: турнирные множители по силе команды <<<
-    def _build_tournament_team_multipliers(players_list):
-        """
-        Строим {team_id: mult} на основе распределения world_rank
-        среди команд ЭТОГО турнира.
 
-        Лучшая команда получает небольшой бонус,
-        худшая — заметный штраф.
-        """
+    def _build_tournament_team_multipliers(players_list):
+
+
+
+
+
+
+
         team_world_ranks: dict[int, int] = {}
         for pl in players_list:
             team = pl.team
@@ -168,16 +168,16 @@ def generate_market_prices_for_tournament(
         if k == 1:
             return {sorted_items[0][0]: 1.0}
 
-        # топы чуть дороже, аутсайдеры сильно дешевле
-        HIGH_MULT = 1.0  # максимальный бонус за топ-1 турнира
-        LOW_MULT = 0.95   # максимальный штраф за последнюю команду
-        CURVE_GAMMA = 2.0  # >1 => сильнее штрафует низ, мягче бустит верх
+
+        HIGH_MULT = 1.0
+        LOW_MULT = 0.95
+        CURVE_GAMMA = 2.0
 
         res: dict[int, float] = {}
         for pos, (team_id, _wr) in enumerate(sorted_items):
-            # strength: 1.0 — лучшая команда, 0.0 — худшая
+
             strength = 1.0 - (pos / (k - 1))
-            # изгибаем кривую: для слабых команд penalty становится сильнее
+
             curved = strength ** CURVE_GAMMA
             mult = LOW_MULT + (HIGH_MULT - LOW_MULT) * curved
             res[team_id] = mult
@@ -185,9 +185,9 @@ def generate_market_prices_for_tournament(
         return res
 
     tournament_team_mult_by_team_id = _build_tournament_team_multipliers(players)
-    # >>> END NEW <<<
 
-    # Собираем метрики только для игроков, у которых есть HLTV-статистика
+
+
     metrics: dict[int, dict] = {}
     players_with_stats: set[int] = set()
     players_without_stats: set[int] = set()
@@ -339,7 +339,7 @@ def generate_market_prices_for_tournament(
     beta = (pmax_target - pmin_target) / (Smax - Smin)
     alpha = pmin_target - beta * Smin
 
-    # Применяем ценовую модель:
+
     for p in players:
         if p.id in players_with_stats:
             S = score_by_player[p.id]
@@ -348,7 +348,7 @@ def generate_market_prices_for_tournament(
             extra_mult = tournament_team_factor_by_player.get(p.id, 1.0)
             raw_price = base_price * extra_mult
 
-            # округляем до 1000
+
             price = int(round(raw_price / 1000.0) * 1000)
 
             PlayerPrice.objects.update_or_create(
@@ -403,15 +403,15 @@ def generate_market_prices_for_tournament(
 
     return upserts
 
-# =================== draft logic ===================
+
 
 @transaction.atomic
 def handle_draft_lock(user: User, league_id: int) -> Dict[str, Any]:
-    """
-    Lock = подтверждение участия.
-    Требует ровно 5 игроков (или league.slots если есть).
-    После старта турнира lock запрещён.
-    """
+
+
+
+
+
     league = League.objects.select_related("tournament").get(id=league_id)
     ft, _ = FantasyTeam.objects.get_or_create(
         user=user,
@@ -444,10 +444,10 @@ def handle_draft_lock(user: User, league_id: int) -> Dict[str, Any]:
 
 @transaction.atomic
 def handle_draft_unlock(user: User, league_id: int) -> Dict[str, Any]:
-    """
-    Unlock разрешён только ДО старта турнира.
-    При unlock чистим FantasyPoints этой команды, чтобы в ладдере не оставались старые очки.
-    """
+
+
+
+
     league = League.objects.select_related("tournament").get(id=league_id)
     ft, _ = FantasyTeam.objects.get_or_create(
         user=user,
@@ -459,7 +459,7 @@ def handle_draft_unlock(user: User, league_id: int) -> Dict[str, Any]:
     if _tournament_started(league):
         return {"error": "Tournament already started. You can't unlock roster."}
 
-    # чистим накопленные очки
+
     FantasyPoints.objects.filter(fantasy_team=ft).delete()
 
     ft.roster_locked = False
@@ -475,7 +475,7 @@ def handle_draft_unlock(user: User, league_id: int) -> Dict[str, Any]:
 def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
     league = League.objects.select_related("tournament").get(id=league_id)
 
-    # Обеспечиваем наличие fantasy-команды для пользователя
+
     ft, _ = FantasyTeam.objects.get_or_create(
         user=user,
         league=league,
@@ -484,7 +484,7 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
 
     participants_count = FantasyTeam.objects.filter(league=league).count()
 
-    # Текущий ростер
+
     roster_qs = (
         FantasyRoster.objects
         .select_related("player", "player__team")
@@ -493,7 +493,7 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
 
     roster_player_ids = list(roster_qs.values_list("player_id", flat=True))
 
-    # Map: цена игрока в текущем турнире
+
     price_by_player = {}
     if league.tournament_id and roster_player_ids:
         price_by_player = dict(
@@ -502,20 +502,20 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             .values_list("player_id", "price")
         )
 
-    # slots / started / lock flags
+
     slots = getattr(league, "slots", 5)
     started = _tournament_started(league)
     roster_locked = bool(getattr(ft, "roster_locked", False))
 
-    # Map: total/avg фэнтези-очков по этому турниру
-    # ✅ ВАЖНО: очки показываем/считаем только если ростер залочен (участник подтверждён)
+
+
     total_by_player: Dict[int, float] = {}
     avg_by_player: Dict[int, float] = {}
     if league.tournament_id and roster_player_ids and roster_locked:
         fpts_rows = (
             FantasyPoints.objects
             .filter(
-                fantasy_team=ft,  # ✅ фикс: только очки этой fantasy-команды
+                fantasy_team=ft,
                 player_id__in=roster_player_ids,
                 map__match__tournament_id=league.tournament_id
             )
@@ -538,17 +538,17 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             "team_name": getattr(r.player.team, "name", None),
             "price": price_by_player.get(r.player_id),
 
-            # ✅ NEW: роль игрока в ростере (для UI выбора роли)
+
             "role_badge": (r.role_badge or None),
 
-            # ✅ если не залочен — не участник => очки не показываем
+
             "fantasy_pts": round(total_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,
             "fppg": round(avg_by_player.get(r.player_id, 0.0), 2) if roster_locked else None,
         }
         for r in roster_qs
     ]
 
-    # Счётчик игроков по реальным командам — для ограничения "max per team"
+
     team_counts: Dict[str, int] = {}
     for r in roster_qs:
         tid = r.player.team_id
@@ -556,16 +556,16 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
             k = str(tid)
             team_counts[k] = team_counts.get(k, 0) + 1
 
-    # Маркет по ценам текущего турнира
+
     market_qs = (
         PlayerPrice.objects
         .select_related("player", "player__team")
         .filter(tournament=league.tournament)
         .order_by(
-            "player__team__world_rank",   # сначала по месту команды в рейтинге (1,2,3,...)
-            "player__team__name",         # потом по названию команды
-            "-price",                     # внутри команды — по цене (дороже выше)
-            "player__nickname",           # и по нику
+            "player__team__world_rank",
+            "player__team__name",
+            "-price",
+            "player__nickname",
         )
     )
 
@@ -581,7 +581,7 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         for pp in market_qs
     ]
 
-    # Флаги и лимиты, которые ждёт фронт
+
     state = {
         "league": {"id": league.id, "name": league.name, "tournament": league.tournament_id},
         "tournament": {"id": league.tournament_id, "name": league.tournament.name} if league.tournament_id else None,
@@ -597,7 +597,7 @@ def get_draft_state(user: User, league_id: int) -> Dict[str, Any]:
         "limits": {"slots": slots, "max_per_team": 2},
         "team_counts": team_counts,
 
-        # удобно для фронта
+
         "can_lock": (not started) and (not roster_locked) and (len(roster_player_ids) == slots),
         "can_unlock": (not started) and roster_locked,
 
@@ -612,7 +612,7 @@ def handle_draft_buy(user: User, league_id: int, player_id: int) -> Dict[str, An
     league = League.objects.select_related("tournament").get(id=league_id)
     ft = FantasyTeam.objects.select_for_update().get(user=user, league=league)
 
-    # ✅ запрет изменений, если ростер залочен
+
     if bool(getattr(ft, "roster_locked", False)):
         return {"error": "Roster is locked. Unlock to make changes."}
 
@@ -632,7 +632,7 @@ def handle_draft_sell(user: User, league_id: int, player_id: int) -> Dict[str, A
     league = League.objects.select_related("tournament").get(id=league_id)
     ft = FantasyTeam.objects.select_for_update().get(user=user, league=league)
 
-    # ✅ запрет изменений, если ростер залочен
+
     if bool(getattr(ft, "roster_locked", False)):
         return {"error": "Roster is locked. Unlock to make changes."}
 
@@ -647,10 +647,10 @@ def handle_draft_sell(user: User, league_id: int, player_id: int) -> Dict[str, A
 
 
 def get_player_summary(player_id: int, tournament_id: Optional[int] = None) -> Dict[str, Any]:
-    """
-    Краткая сводка по игроку (используется в модалке).
-    Оставлено минимально необходимое; дополнительные поля можно добавить при необходимости.
-    """
+
+
+
+
     qs = PlayerMapStats.objects.filter(player_id=player_id)
     if tournament_id:
         qs = qs.filter(map__match__tournament_id=tournament_id)
@@ -660,7 +660,7 @@ def get_player_summary(player_id: int, tournament_id: Optional[int] = None) -> D
     deaths = qs.aggregate(total=Sum("deaths")).get("total") or 0
     kd = round(kills / deaths, 2) if deaths else None
 
-    # Фэнтези-очки из FantasyPoints
+
     fpts_qs = FantasyPoints.objects.filter(player_id=player_id)
     if tournament_id:
         fpts_qs = fpts_qs.filter(map__match__tournament_id=tournament_id)
@@ -679,15 +679,15 @@ def get_player_summary(player_id: int, tournament_id: Optional[int] = None) -> D
     }
 
 
-# ====== Пересчёт очков ======
+
 
 def recalc_map(map_id: int) -> int:
-    """
-    Пересчитать FantasyPoints для одной карты.
-    Возвращает количество апсертов в FantasyPoints.
 
-    ✅ ВАЖНО: очки начисляются только roster_locked=True (участники подтвердили Lock).
-    """
+
+
+
+
+
     game_map = (
         Map.objects
         .select_related("match")
@@ -695,24 +695,24 @@ def recalc_map(map_id: int) -> int:
     )
     tournament_id = game_map.match.tournament_id
 
-    # Все статы на карте
+
     stats: Iterable[PlayerMapStats] = (
         PlayerMapStats.objects
         .select_related("player", "player__team")
         .filter(map_id=map_id)
     )
 
-    # Все ростеры лиг этого турнира, но только залоченные команды
+
     rosters = (
         FantasyRoster.objects
         .select_related("fantasy_team", "fantasy_team__league", "player", "player__team")
         .filter(
             fantasy_team__league__tournament_id=tournament_id,
-            fantasy_team__roster_locked=True,  # ✅ ключевое правило
+            fantasy_team__roster_locked=True,
         )
     )
 
-    # Индексация: игрок -> [(fantasy_team_id, role_badge)]
+
     roster_by_player: dict[int, list[tuple[int, str | None]]] = {}
     for r in rosters:
         roster_by_player.setdefault(r.player_id, []).append((r.fantasy_team_id, r.role_badge or None))
@@ -730,7 +730,7 @@ def recalc_map(map_id: int) -> int:
                 "rating2": float(s.rating2) if s.rating2 is not None else None,
             }
 
-            # Победителя карты в модели нет — передаём None
+
             for ft_id, role_badge in roster_by_player.get(s.player_id, []):
                 pts, br = calc_points(
                     stat=stat_dict,
