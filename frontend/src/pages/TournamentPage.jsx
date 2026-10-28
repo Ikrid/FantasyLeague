@@ -2,7 +2,7 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 const BASE_URL = "http://localhost:8000/api";
-const LEAGUES_PER_PAGE = 10; // сколько лиг на странице
+const LEAGUES_PER_PAGE = 10;
 
 async function apiGetPublic(path) {
   const res = await fetch(`${BASE_URL}${path}`);
@@ -48,9 +48,9 @@ export default function TournamentPage() {
   const [topPlayersLoading, setTopPlayersLoading] = useState(false);
   const [topPlayersErr, setTopPlayersErr] = useState("");
 
-  const [leaguePage, setLeaguePage] = useState(1); // пагинация лиг
+  const [leaguePage, setLeaguePage] = useState(1);
 
-  // 1) турнир
+
   useEffect(() => {
     if (!tournamentId) return;
     setErr("");
@@ -59,20 +59,20 @@ export default function TournamentPage() {
       .catch((e) => setErr(String(e.message || e)));
   }, [tournamentId]);
 
-  // 2) лиги турнира
+
   useEffect(() => {
     if (!tournamentId) return;
     setLoading(true);
     apiGetPublic(`/leagues?tournament=${tournamentId}`)
       .then((data) => {
         setLeagues(data);
-        setLeaguePage(1); // при загрузке сбрасываем на первую страницу
+        setLeaguePage(1);
       })
       .catch((e) => setErr(String(e.message || e)))
       .finally(() => setLoading(false));
   }, [tournamentId]);
 
-  // 3) топ игроков турнира
+
   useEffect(() => {
     if (!tournamentId) return;
     setTopPlayers([]);
@@ -85,7 +85,7 @@ export default function TournamentPage() {
       .finally(() => setTopPlayersLoading(false));
   }, [tournamentId]);
 
-  // Загрузка ladder для выбранной лиги
+
   const loadLadder = (league, page = 1) => {
     if (!league) return;
 
@@ -104,7 +104,7 @@ export default function TournamentPage() {
       .finally(() => setLadderLoading(false));
   };
 
-  // Создание новой лиги
+
   const handleCreateLeague = async () => {
     if (!tournamentId) return;
 
@@ -132,7 +132,7 @@ export default function TournamentPage() {
       };
 
       setLeagues((prev) => [...prev, leagueWithMeta]);
-      setLeaguePage(1); // после создания возвращаемся на первую страницу
+      setLeaguePage(1);
       loadLadder(leagueWithMeta, 1);
     } catch (e) {
       setErr(String(e.message || e));
@@ -141,7 +141,7 @@ export default function TournamentPage() {
     }
   };
 
-  // Копирование ссылки на лигу
+
   const handleCopyLeagueLink = (leagueId, e) => {
     if (e) e.stopPropagation();
 
@@ -161,7 +161,7 @@ export default function TournamentPage() {
     }
   };
 
-  // ====== сортировка и пагинация лиг ======
+
   const hasLeagues = leagues && leagues.length > 0;
 
   let sortedLeagues = [];
@@ -170,12 +170,12 @@ export default function TournamentPage() {
   let pagedLeagues = [];
 
   if (hasLeagues) {
-    // сортировка по количеству игроков (по убыванию)
+
     sortedLeagues = [...leagues].sort((a, b) => {
       const ac = a.participants_count ?? 0;
       const bc = b.participants_count ?? 0;
-      if (bc !== ac) return bc - ac; // больше игроков — выше
-      // вторичная сортировка, чтобы был стабильный порядок
+      if (bc !== ac) return bc - ac;
+
       return (a.id ?? 0) - (b.id ?? 0);
     });
 
@@ -205,9 +205,9 @@ export default function TournamentPage() {
 
       {!loading && !err && (
         <>
-          {/* ВЕРХ: слева лиги, справа ladder */}
+          {                                     }
           <div className="mt-6 grid gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
-            {/* ЛЕВАЯ КОЛОНКА — лиги */}
+            {                          }
             <div className="flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-semibold text-zinc-200">
@@ -249,7 +249,7 @@ export default function TournamentPage() {
                             Players: {lg.participants_count ?? 0}
                           </span>
 
-                          {/* COPY LINK */}
+                          {               }
                           <button
                             type="button"
                             className="px-3 py-2 text-sm rounded-xl border border-emerald-500/70 text-emerald-300 hover:bg-emerald-500/10"
@@ -258,7 +258,7 @@ export default function TournamentPage() {
                             Copy link
                           </button>
 
-                          {/* JOIN */}
+                          {          }
                           <button
                             type="button"
                             className="px-4 py-2 text-sm rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black font-semibold"
@@ -283,7 +283,7 @@ export default function TournamentPage() {
                   );
                 })}
 
-              {/* Пагинация лиг */}
+              {                   }
               {hasLeagues && leaguesTotalPages > 1 && (
                 <div className="flex items-center justify-between mt-3 text-sm text-zinc-200">
                   <button
@@ -311,7 +311,7 @@ export default function TournamentPage() {
               )}
             </div>
 
-            {/* ПРАВАЯ КОЛОНКА — ladder */}
+            {                             }
             <div className="border border-white/10 rounded-2xl p-5 bg-white/5 min-h-[240px]">
               {!selectedLeague && (
                 <p className="text-zinc-300 text-base">
@@ -408,7 +408,7 @@ export default function TournamentPage() {
             </div>
           </div>
 
-          {/* НИЖНИЙ БЛОК — топ игроков турнира */}
+          {                                       }
  <div className="mt-6 border border-white/10 rounded-2xl p-6 bg-white/5">
   <h3 className="text-2xl font-bold text-center mb-6">
     Most Picked Players

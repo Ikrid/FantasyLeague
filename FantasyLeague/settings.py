@@ -1,6 +1,6 @@
-"""
-Django settings for FantasyLeague project.
-"""
+
+
+
 from pathlib import Path
 from datetime import timedelta
 
@@ -11,7 +11,7 @@ DEBUG = True
 ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [
-    # Django
+
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -19,18 +19,18 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
 
-    # Third-party
+
     'rest_framework',
     'corsheaders',
 
-    # Local apps
+
     'core.apps.CoreConfig',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',   # ← CORS до CommonMiddleware
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -79,26 +79,24 @@ USE_TZ = True
 STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# ==== DRF / JWT ====
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
 }
 
-# Увеличиваем время жизни токенов (access и refresh)
+
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),     # было 5 минут по умолчанию
+    "ACCESS_TOKEN_LIFETIME": timedelta(hours=2),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
-    "ROTATE_REFRESH_TOKENS": False,                  # можно True, если хочешь ротацию
+    "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": False,
     "UPDATE_LAST_LOGIN": False,
-    # На dev это ок; на проде — подтверди часы/таймзону на сервере
+
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,
 }
 
-# ==== CORS (dev) ====
+
 CORS_ALLOW_ALL_ORIGINS = True
-# На проде лучше ограничить:
-# CORS_ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]

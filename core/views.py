@@ -26,17 +26,17 @@ from .services import (
     handle_draft_buy,
     handle_draft_sell,
     get_player_summary,
-    handle_draft_lock,    # ✅ added
-    handle_draft_unlock,  # ✅ added
+    handle_draft_lock,
+    handle_draft_unlock,
 )
-from .roles import ROLES  # ✅ for role validation
+from .roles import ROLES
 
 
 def _tournament_started(tournament) -> bool:
-    """
-    Турнир считаем начавшимся, если есть хотя бы 1 матч со start_time <= now.
-    Это нужно, чтобы запретить Unlock/изменения ростера после старта.
-    """
+
+
+
+
     if not tournament:
         return False
     return Match.objects.filter(
@@ -45,28 +45,28 @@ def _tournament_started(tournament) -> bool:
     ).exists()
 
 
-# TEAM
+
 class TeamViewSet(viewsets.ModelViewSet):
     queryset = Team.objects.all().order_by("id")
     serializer_class = TeamSerializer
     permission_classes = [AllowAny]
 
 
-# PLAYER
+
 class PlayerViewSet(viewsets.ModelViewSet):
     queryset = Player.objects.select_related("team").all().order_by("id")
     serializer_class = PlayerSerializer
     permission_classes = [AllowAny]
 
 
-# TOURNAMENT
+
 class TournamentViewSet(viewsets.ModelViewSet):
     queryset = Tournament.objects.all().order_by("id")
     serializer_class = TournamentSerializer
     permission_classes = [AllowAny]
 
 
-# TOURNAMENT PARTICIPANTS
+
 class TournamentTeamViewSet(viewsets.ModelViewSet):
     queryset = TournamentTeam.objects.select_related("tournament", "team").all().order_by("id")
     serializer_class = TournamentTeamSerializer
@@ -89,7 +89,7 @@ class TournamentTeamViewSet(viewsets.ModelViewSet):
         return qs
 
 
-# LEAGUE
+
 class LeagueViewSet(viewsets.ModelViewSet):
     queryset = League.objects.select_related("tournament").all().order_by("id")
     serializer_class = LeagueSerializer
@@ -108,21 +108,21 @@ class LeagueViewSet(viewsets.ModelViewSet):
         return qs
 
 
-# FANTASY TEAM
+
 class FantasyTeamViewSet(viewsets.ModelViewSet):
     queryset = FantasyTeam.objects.select_related("league").all().order_by("id")
     serializer_class = FantasyTeamSerializer
     permission_classes = [AllowAny]
 
 
-# FANTASY ROSTER
+
 class FantasyRosterViewSet(viewsets.ModelViewSet):
     queryset = FantasyRoster.objects.select_related("player", "fantasy_team").all().order_by("id")
     serializer_class = FantasyRosterSerializer
     permission_classes = [AllowAny]
 
 
-# MATCH
+
 class MatchViewSet(viewsets.ModelViewSet):
     queryset = Match.objects.select_related("tournament", "team1", "team2").all().order_by("id")
     serializer_class = MatchSerializer
@@ -139,7 +139,7 @@ class MatchViewSet(viewsets.ModelViewSet):
         return qs
 
 
-# MAP
+
 class MapViewSet(viewsets.ModelViewSet):
     queryset = Map.objects.select_related("match").all().order_by("id")
     serializer_class = MapSerializer
@@ -156,7 +156,7 @@ class MapViewSet(viewsets.ModelViewSet):
         return qs
 
 
-# PLAYER MAP STATS
+
 class PlayerMapStatsViewSet(viewsets.ModelViewSet):
     queryset = PlayerMapStats.objects.select_related("map", "player").all().order_by("id")
     serializer_class = PlayerMapStatsSerializer
@@ -185,14 +185,14 @@ class PlayerMapStatsViewSet(viewsets.ModelViewSet):
         return qs
 
 
-# MARKET
+
 class MarketViewSet(viewsets.ModelViewSet):
     queryset = PlayerPrice.objects.select_related("player", "tournament", "player__team").all().order_by("-updated_at")
     serializer_class = PlayerPriceSerializer
     permission_classes = [AllowAny]
 
 
-# ADMIN — RECALCULATE
+
 class AdminRecalcView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -205,7 +205,7 @@ class AdminRecalcView(APIView):
         return Response({"status": "ok"})
 
 
-# MARKET GENERATION
+
 class MarketGenerateView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -231,11 +231,11 @@ class MarketGenerateView(APIView):
         return Response({"ok": True, "upserts": upserts}, status=status.HTTP_200_OK)
 
 
-# =========================
-# DRAFT
-# =========================
 
-# DRAFT — STATE
+
+
+
+
 class DraftStateView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -252,25 +252,25 @@ class DraftStateView(APIView):
         ft = FantasyTeam.objects.filter(user=user, league=league).first()
         roster_locked = bool(getattr(ft, "roster_locked", False))
 
-        # draft actions disabled если:
-        # - турнир закончился
-        # - или турнир уже начался
-        # - или пользователь нажал Lock
+
+
+
+
         draft_locked = t_finished or t_started or roster_locked
 
-        # "locked" — оставим как "турнир finished" (как у тебя было),
-        # а "started" используем как "драфт запрещён"
+
+
         state["locked"] = t_finished
         state["started"] = draft_locked
 
-        # доп. флаги для UI
+
         state["roster_locked"] = roster_locked
         state["tournament_started"] = t_started
 
-        # ✅ can_unlock уже было
+
         state["can_unlock"] = roster_locked and (not t_started) and (not t_finished)
 
-        # ✅ добавил can_lock (удобно фронту)
+
         slots = getattr(league, "max_badges", None) or getattr(league, "slots", None) or 5
         roster_count = 0
         if ft:
@@ -281,7 +281,7 @@ class DraftStateView(APIView):
         return Response(state)
 
 
-# DRAFT — BUY
+
 class DraftBuyView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -309,7 +309,7 @@ class DraftBuyView(APIView):
         return Response(result)
 
 
-# DRAFT — SELL
+
 class DraftSellView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -354,7 +354,7 @@ class DraftLockView(APIView):
         if _tournament_started(t):
             return Response({"error": "Tournament already started. Draft is locked."}, status=403)
 
-        # ✅ Lock через services.py (единая логика)
+
         result = handle_draft_lock(request.user, int(league_id))
         if "error" in result:
             return Response(result, status=400)
@@ -378,21 +378,21 @@ class DraftUnlockView(APIView):
         if _tournament_started(t):
             return Response({"error": "Tournament already started. Can't unlock."}, status=403)
 
-        # ✅ Unlock через services.py (единая логика)
+
         result = handle_draft_unlock(request.user, int(league_id))
         if "error" in result:
             return Response(result, status=400)
         return Response(result, status=200)
 
 
-# ✅ DRAFT — SET ROLE (NEW)
+
 class DraftSetRoleView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         league_id = request.data.get("league_id")
         player_id = request.data.get("player_id")
-        role_badge = request.data.get("role_badge")  # may be None / "" to clear
+        role_badge = request.data.get("role_badge")
 
         if not league_id or not player_id:
             return Response({"detail": "league_id and player_id are required"}, status=400)
@@ -413,11 +413,11 @@ class DraftSetRoleView(APIView):
         if getattr(ft, "roster_locked", False):
             return Response({"error": "Roster is locked. Unlock to edit."}, status=403)
 
-        # normalize
+
         if role_badge is not None and str(role_badge).strip() == "":
             role_badge = None
 
-        # validate
+
         if role_badge is not None and str(role_badge) not in ROLES:
             return Response({"error": "Unknown role_badge"}, status=400)
 
@@ -431,7 +431,7 @@ class DraftSetRoleView(APIView):
         return Response({"ok": True, "player_id": int(player_id), "role_badge": role_badge})
 
 
-# AUTH
+
 class RegisterView(generics.CreateAPIView):
     queryset = FantasyTeam.objects.none()
     serializer_class = RegisterSerializer
@@ -453,17 +453,17 @@ class MeView(APIView):
         })
 
 
-# PLAYER SUMMARY
+
 class PlayerSummaryView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request, player_id):
         tournament_id = request.query_params.get("tournament")
 
-        # 1. Базовые данные, как и раньше
+
         data = get_player_summary(player_id, tournament_id) or {}
 
-        # 2. Подмешиваем HLTV-статы, если есть
+
         hltv = PlayerHLTVStats.objects.filter(player_id=player_id).first()
         if hltv:
             data.update({
@@ -483,7 +483,7 @@ class PlayerSummaryView(APIView):
         return Response(data)
 
 
-# MATCH → PLAYERS
+
 class MatchPlayersView(APIView):
     permission_classes = [AllowAny]
 
@@ -507,16 +507,16 @@ class HLTVImportView(APIView):
     permission_classes = [IsAdminUser]
 
     def post(self, request, *args, **kwargs):
-        """
-        Принимаем ИЛИ URL, ИЛИ id турнира:
-        - frontend может прислать hltvId, hltv_id, hltv или url
-        - если это URL, просто прокидываем его дальше как есть
-        - если это число — тоже передаём строкой (как раньше)
 
-        Дополнительно:
-        - можно прислать budget и slots (опционально), чтобы сразу
-          сгенерировать рынок для только что импортированного турнира.
-        """
+
+
+
+
+
+
+
+
+
 
         raw = (
             request.data.get("hltvId")
@@ -532,9 +532,9 @@ class HLTVImportView(APIView):
             )
 
         value = str(raw).strip()
-        event_arg = value  # не трогаем, скрапер ждёт строку
+        event_arg = value
 
-        # Параметры для генерации рынка (как в MarketGenerateView)
+
         try:
             budget = int(request.data.get("budget", 1000000))
             slots = int(request.data.get("slots", 5))
@@ -545,10 +545,10 @@ class HLTVImportView(APIView):
             )
 
         try:
-            # 1. Импорт турнира с HLTV
+
             result = import_tournament_full(event_arg)
 
-            # 2. Достаём ID турнира, чтобы сгенерировать рынок
+
             tournament_id = (
                 result.get("tournament_id")
                 or result.get("id")
@@ -561,7 +561,7 @@ class HLTVImportView(APIView):
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
-            # 3. Генерация цен/рынка для турнира
+
             generate_market_prices_for_tournament(
                 int(tournament_id),
                 budget=budget,
@@ -581,27 +581,27 @@ class HLTVImportView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
-# STANDINGS / LADDER
-class LeagueStandingsView(APIView):
-    """
-    Ладдер лиги с пагинацией.
-    GET /api/leagues/<league_id>/ladder/?page=1
 
-    По умолчанию:
-    - page_size = 20
-    - сортировка по total_points DESC, затем id ASC
-    """
+class LeagueStandingsView(APIView):
+
+
+
+
+
+
+
+
 
     permission_classes = [AllowAny]
 
     def get(self, request, league_id):
-        # 1. Лига
+
         try:
             league = League.objects.select_related("tournament").get(pk=league_id)
         except League.DoesNotExist:
             return Response({"detail": "League not found"}, status=404)
 
-        # 2. Параметры пагинации
+
         page_size = 20
         raw_page = request.query_params.get("page", "1")
         try:
@@ -611,7 +611,7 @@ class LeagueStandingsView(APIView):
         if page < 1:
             page = 1
 
-        # 3. Базовый queryset по FantasyTeam
+
         base_qs = (
             FantasyTeam.objects
             .filter(league=league)
@@ -643,14 +643,14 @@ class LeagueStandingsView(APIView):
 
         ladder = []
         for idx, ft in enumerate(teams_page, start=0):
-            rank = start + idx + 1  # глобальный ранг
+            rank = start + idx + 1
             pts = float(ft.total_points or 0)
 
             ladder.append(
                 {
                     "rank": rank,
                     "fantasy_team_id": ft.id,
-                    "team_name": ft.user_name,  # название команды в лиге
+                    "team_name": ft.user_name,
                     "user_name": ft.user.username if ft.user_id else None,
                     "total_points": pts,
                     "roster_size": ft.roster_size,
@@ -684,10 +684,10 @@ class LeagueStandingsView(APIView):
 
 
 class TournamentTopPlayersView(APIView):
-    """
-    Топ-8 самых часто выбранных игроков по турниру.
-    GET /api/tournaments/<tournament_id>/top-players/
-    """
+
+
+
+
     permission_classes = [AllowAny]
 
     def get(self, request, tournament_id):
@@ -749,7 +749,7 @@ class FantasyPointsByMapView(APIView):
         except Exception:
             return Response({"error": "map must be int"}, status=400)
 
-        # суммарные очки по игроку на этой карте (по всем fantasy_team)
+
         qs = (
             FantasyPoints.objects
             .filter(map_id=map_id, fantasy_team__roster_locked=True)

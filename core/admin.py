@@ -38,7 +38,7 @@ class FantasyPointsAdmin(admin.ModelAdmin):
     list_display = ('id', 'fantasy_team', 'player', 'map', 'points')
     list_filter = ('fantasy_team__league', 'map__map_name')
 
-# NEW: цены рынка
+
 @admin.register(PlayerPrice)
 class PlayerPriceAdmin(admin.ModelAdmin):
     list_display = ("tournament", "player", "price", "source", "updated_at")
