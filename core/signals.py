@@ -8,7 +8,7 @@ from .models import PlayerMapStats, Map
 from .services import recalc_map
 
 
-# Простая очередь для "склеивания" множественных вызовов в одной транзакции
+
 def _queue_recalc(map_id: int | None) -> None:
     if not map_id:
         return
@@ -16,7 +16,7 @@ def _queue_recalc(map_id: int | None) -> None:
     if pending is None:
         pending = set()
         _queue_recalc._pending = pending
-        # Выполнить один раз после коммита всей транзакции
+
         transaction.on_commit(_flush_recalc_queue)
     pending.add(int(map_id))
 
@@ -30,24 +30,24 @@ def _flush_recalc_queue():
         delattr(_queue_recalc, "_pending")
 
     for mid in maps_to_recalc:
-        # НЕ глушим исключения — иначе ты никогда не узнаешь, почему очки = 0
+
         recalc_map(mid)
 
 
 @receiver(post_save, sender=PlayerMapStats, weak=False)
 def _pms_saved(sender, instance: PlayerMapStats, created: bool, **kwargs):
-    """
-    Любое сохранение строк статы игрока на карте → пересчёт FantasyPoints по этой карте.
-    Складываем в очередь и выполняем после коммита.
-    """
+
+
+
+
     _queue_recalc(instance.map_id)
 
 
 @receiver(post_delete, sender=PlayerMapStats, weak=False)
 def _pms_deleted(sender, instance: PlayerMapStats, **kwargs):
-    """
-    Удалили строчку статы → тоже пересчитать карту.
-    """
+
+
+
     _queue_recalc(instance.map_id)
 
 
@@ -56,7 +56,7 @@ def _map_pre_save(sender, instance: Map, **kwargs):
     if not instance.pk:
         return
 
-    # winner_team_id больше не существует
+
     try:
         old = Map.objects.only("played_rounds", "winner_id").get(pk=instance.pk)
     except Map.DoesNotExist:

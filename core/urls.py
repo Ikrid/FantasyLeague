@@ -9,7 +9,7 @@ from .views import (
     AdminRecalcView, LeagueStandingsView, TournamentTopPlayersView,
     MarketViewSet, MarketGenerateView,
     DraftStateView, DraftBuyView, DraftSellView, DraftLockView, DraftUnlockView,
-    DraftSetRoleView,  # ✅ added
+    DraftSetRoleView,
     RegisterView, MeView,
     PlayerSummaryView, TournamentTeamViewSet,
     MatchPlayersView, HLTVImportView, FantasyPointsByMapView,
@@ -31,12 +31,12 @@ router.register(r"market", MarketViewSet, basename="market")
 urlpatterns = [
     path("", include(router.urls)),
 
-    # админ-утилиты
+
     path("admin/recalculate", AdminRecalcView.as_view()),
     path("market/generate", MarketGenerateView.as_view()),
     path("market/generate/", MarketGenerateView.as_view()),
 
-    # standings / ladder + турнирная статистика
+
     path("leagues/<int:league_id>/standings", LeagueStandingsView.as_view()),
     path("leagues/<int:league_id>/ladder/", LeagueStandingsView.as_view()),
     path(
@@ -44,7 +44,7 @@ urlpatterns = [
         TournamentTopPlayersView.as_view(),
     ),
 
-    # драфт
+
     path("draft/<int:league_id>/state", DraftStateView.as_view()),
     path("draft/buy", DraftBuyView.as_view()),
     path("draft/sell", DraftSellView.as_view()),
@@ -57,13 +57,13 @@ urlpatterns = [
     path("draft/set-role", DraftSetRoleView.as_view()),
     path("draft/set-role/", DraftSetRoleView.as_view()),
 
-    # player summary
+
     path("player-summary/<int:player_id>/", PlayerSummaryView.as_view()),
 
-    # матч-участники (игроки, реально игравшие)
+
     path("match-players", MatchPlayersView.as_view()),
 
-    # аутентификация
+
     path("auth/login", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("auth/refresh", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/register", RegisterView.as_view(), name="auth-register"),
@@ -71,6 +71,6 @@ urlpatterns = [
 
     path("fantasy-points", FantasyPointsByMapView.as_view()),
 
-    # HLTV импорт турнира
+
     path("hltv/import-tournament", HLTVImportView.as_view()),
 ]

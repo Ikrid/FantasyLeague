@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 const BASE_URL = "http://localhost:8000/api";
 
-/* ================== API ================== */
+
 const getToken = () => localStorage.getItem("access");
 const clearToken = () => localStorage.removeItem("access");
 const authHeader = () => ({ Authorization: `Bearer ${getToken()}`, "Content-Type": "application/json" });
@@ -35,13 +35,13 @@ async function apiDelete(path) {
   return true;
 }
 
-/* ====== ADMIN RECALC (FIXED URL) ====== */
+
 async function adminRecalculate(scope, id) {
-  // backend endpoint: /api/admin/recalculate
+
   return apiPost(`/admin/recalculate`, { scope, id });
 }
 
-/* ================== UI ================== */
+
 function Button({ children, onClick, type = "button", variant = "primary", disabled, className = "" }) {
   const base = variant === "ghost" ? "bg-transparent text-white hover:bg-white/10" : "bg-white text-black hover:bg-zinc-200";
   const dis = disabled ? "opacity-50 cursor-not-allowed" : "";
@@ -98,7 +98,7 @@ function Card({ title, action, children }) {
 }
 const Note = ({ children, className = "" }) => <p className={`text-sm text-zinc-300 mt-2 ${className}`}>{children}</p>;
 
-/* ====== small inputs ====== */
+
 function InlineText({ value, onChange }) {
   return (
     <input
@@ -118,7 +118,7 @@ function StatNumber({ value, onChange, className = "" }) {
   );
 }
 
-/* ====== list rows ====== */
+
 function TournamentRow({ t, onSave, onDelete }) {
   const [name, setName] = useState(t.name || "");
   const [start, setStart] = useState(t.start_date || "");
@@ -206,7 +206,7 @@ function LeagueRow({ l, tournaments, onSave, onDelete }) {
   );
 }
 
-/* ============ Match Details (maps + only the two teams' players, editable PlayerMapStats) ============ */
+
 function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
@@ -365,7 +365,7 @@ function MatchDetailsModal({ matchId, onClose }) {
         setStats((prev) => prev.map((x) => (x === s ? created : x)));
       }
 
-      // force points recompute
+
       await adminRecalculate("map", Number(mapId));
 
       const st = await apiGet(`/player-map-stats?map=${mapId}`);
@@ -387,7 +387,7 @@ function MatchDetailsModal({ matchId, onClose }) {
         else await apiPost(`/player-map-stats/`, body);
       }
 
-      // recompute once per map after bulk save
+
       await adminRecalculate("map", Number(mapId));
 
       const st = await apiGet(`/player-map-stats?map=${mapId}`);
@@ -488,7 +488,7 @@ function MatchDetailsModal({ matchId, onClose }) {
   );
 }
 
-/* ================== MAIN PAGE ================== */
+
 export default function AdminPage() {
   const nav = useNavigate();
   const [me, setMe] = useState(null);
@@ -851,7 +851,7 @@ export default function AdminPage() {
           {["market", "lists", "tournament", "team", "player", "league", "matches", "hltv"].map(tabBtn)}
         </div>
 
-        {/* MARKET */}
+        {            }
         {tab === "market" && (
           <div className="mt-6 grid md:grid-cols-2 gap-6">
             <Card title="Generate Market">
@@ -883,14 +883,14 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* LISTS */}
+        {           }
         {tab === "lists" && (
           <div className="mt-6 space-y-8">
-            {/* ... весь твой lists код без изменений ... */}
+            {                                               }
           </div>
         )}
 
-        {/* TOURNAMENT */}
+        {                }
         {tab === "tournament" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create Tournament">
@@ -922,7 +922,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* TEAM */}
+        {          }
         {tab === "team" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create Team">
@@ -942,7 +942,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* PLAYER */}
+        {            }
         {tab === "player" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create Player">
@@ -962,7 +962,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* LEAGUE */}
+        {            }
         {tab === "league" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Create League">
@@ -987,7 +987,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* MATCHES */}
+        {             }
         {tab === "matches" && (
           <div className="mt-6 grid gap-6">
             <Card title="Matches by Tournament" action={<Button onClick={loadMatchesForTournament}>Refresh</Button>}>
@@ -1031,7 +1031,7 @@ export default function AdminPage() {
               </div>
             </Card>
           </div>
-        )}{/* LISTS */}
+        )}{           }
         {tab === "lists" && (
           <div className="mt-6 space-y-8">
             <Card title="Tournaments">
@@ -1273,7 +1273,7 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* HLTV IMPORT */}
+        {                 }
         {tab === "hltv" && (
           <div className="mt-6 grid lg:grid-cols-2 gap-6">
             <Card title="Import Tournament from HLTV">
